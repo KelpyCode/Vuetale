@@ -1,0 +1,26 @@
+{
+    "Group": "kelp.li",
+    "Name": "Vuetale",
+    "Version": "1.0-SNAPSHOT",
+    "Main": "li.kelp.vuetale.Plugin",
+    "Description": "",
+    "Authors": [
+        
+    ],
+    "Website": "",
+    "Dependencies": {
+        
+    },
+    "OptionalDependencies": {
+        
+    },
+    "LoadBefore": {
+        
+    },
+    "DisabledByDefault": false,
+    "IncludesAssetPack": true,
+    "ServerVersion": "2026.02.19-1a311a592",
+    "SubPlugins": [
+        
+    ]
+}
