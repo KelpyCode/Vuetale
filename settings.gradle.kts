@@ -1,4 +1,4 @@
-rootProject.name = "HytaleTemplate"
+rootProject.name = "Vuetale"
 
 pluginManagement {
     repositories {
