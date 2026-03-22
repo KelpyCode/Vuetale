@@ -12,6 +12,10 @@ fun main() {
     jsEngine.createUserApp("test-app")
 
 
-
     println("Done")
+
+    // Keep alive
+    while (true) {
+        Thread.sleep(1000)
+    }
 }

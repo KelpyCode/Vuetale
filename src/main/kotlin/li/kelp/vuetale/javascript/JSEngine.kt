@@ -76,6 +76,7 @@ class JSEngine : AutoCloseable {
     private val resourceLoader: ClassLoader?
     private val resourceBasePath: String
     private val context: Context
+    private val bridge: VueBridge = VueBridge()
 
     constructor() : this(null, "vuetale")
 
@@ -91,7 +92,13 @@ class JSEngine : AutoCloseable {
             .allowIO(IOAccess.newBuilder().fileSystem(fs).build())
             .allowHostAccess(HostAccess.ALL)
             .option("js.esm-eval-returns-exports", "true")
+
             .build()
+
+        val bindings = context.getBindings("js")
+
+        bindings.putMember("ktBridge", bridge)
+
 
         // Load the Vue IIFE as a plain script → populates globalThis.Vue
         // The vuetale/core/vue.js shim then re-exports from globalThis.Vue for ESM consumers.
