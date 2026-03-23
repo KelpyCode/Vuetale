@@ -31,7 +31,8 @@ abstract class ElementContainer(tag: String) : Element(tag) {
     }
 
     fun appendChild(child: Element) {
-        child.appendTo(this)
+        children.add(child)
+        child.parent = this
     }
 
     fun prependChild(child: Element) {

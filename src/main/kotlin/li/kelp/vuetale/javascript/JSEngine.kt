@@ -78,6 +78,12 @@ class JSEngine : AutoCloseable {
     private val context: Context
     private val bridge: VueBridge = VueBridge()
 
+    var loaderCtx: Value
+
+    companion object {
+        val instance: JSEngine by lazy { JSEngine() }
+    }
+
     constructor() : this(null, "vuetale")
 
     constructor(loader: ClassLoader?, basePath: String) {
@@ -109,8 +115,8 @@ class JSEngine : AutoCloseable {
             Source.newBuilder("js", vueReader, "vue-iife")
                 .mimeType("application/javascript")
                 .build()
-        )
 
+        )
 
         // Make the IIFE result (last expression value) available as globalThis.Vue
         context.eval(
@@ -138,6 +144,9 @@ class JSEngine : AutoCloseable {
                 .mimeType("application/javascript")
                 .build()
         )
+
+        loaderCtx = this.evalModuleResource("loader.js")
+
     }
 
     fun evalModuleResource(path: String): Value {

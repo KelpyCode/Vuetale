@@ -2,12 +2,11 @@
 
 import li.kelp.vuetale.tree.Element
 
-abstract class Property(val element: Element) {
-    abstract val name: String
-
-    abstract fun getValue(): String
+abstract class Property(val name: String) {
 
     open fun isValid(): Boolean {
         return true
     }
+
+    abstract fun render(): String?
 }

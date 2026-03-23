@@ -1,6 +1,17 @@
 ﻿package li.kelp.vuetale.tree
 
+import li.kelp.vuetale.property.Property
+import li.kelp.vuetale.util.RenderUtil.indent
+import li.kelp.vuetale.util.RenderUtil.simpleElementRender
+import org.graalvm.polyglot.Value
+
 abstract class Element(val tag: String) {
+    @JvmField
+    var _vnode: Value = Value.asValue(null) // Placeholder for the virtual node representation
+
+    @JvmField
+    var __vue_app__: Value = Value.asValue(null) // Placeholder for the virtual node representation
+
     companion object {
         val idElementMap = mutableMapOf<String, Element>()
 
@@ -8,15 +19,29 @@ abstract class Element(val tag: String) {
             // Randomly generate an ID, check if it already exists, and if so, generate a new one
             var id: String
             do {
-                id = List(12) { ('a'..'z') + ('0'..'9') }.flatten().random().toString()
+                val chars = ('a'..'z') + ('0'..'9')
+                id = List(12) { chars.random() }.joinToString("")
             } while (idElementMap.containsKey(id))
-            return id
+            return "vt_" + id
         }
+    }
+
+    open fun render(depth: Int): String {
+        return simpleElementRender(this, depth)
+    }
+
+    fun renderProperties(depth: Int): String {
+        if(properties.isEmpty()) {
+            return ""
+        }
+        return properties.mapNotNull { indent(depth) + it.value.render() }.joinToString(";\n") + ";\n"
     }
 
     abstract val elementType: String
     val id: String
     var parent: ElementContainer? = null
+
+    var properties = mutableMapOf<String, Property>()
 
     init {
         id = generateId()
