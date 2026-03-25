@@ -147,6 +147,7 @@ class JSEngine : AutoCloseable {
 
         loaderCtx = this.evalModuleResource("loader.js")
 
+
     }
 
     fun evalModuleResource(path: String): Value {

@@ -2,7 +2,9 @@
 
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.property.PropertyNumber
+import li.kelp.vuetale.property.PropertyOrigin
 import li.kelp.vuetale.property.PropertyString
+import li.kelp.vuetale.style.StyleRegistry
 import li.kelp.vuetale.tree.Element
 import li.kelp.vuetale.tree.ElementContainer
 import li.kelp.vuetale.tree.GroupElement
@@ -12,8 +14,17 @@ import java.util.logging.Logger
 
 class VueBridge {
     val logger = Logger.getLogger("VueBridge")
+
+    // Styles
+
+    fun registerStyles(key: String, value: Value) {
+        StyleRegistry.registerStyle(key, value)
+    }
+
+    // Renderer
+
     fun createElement(appId: String, tag: String): Element {
-        logger.info("Creating element with tag '$tag' for app '$appId'")
+        // logger.info("Creating element with tag '$tag' for app '$appId'")
 
         val elementClass = getElementClassForTag(tag)
         if(elementClass == null) {
@@ -33,7 +44,7 @@ class VueBridge {
 
     }
     fun setElementText(appId: String, el: Value, text: String) {
-        logger.info("Setting element text for app '$appId': $text")
+        // logger.info("Setting element text for app '$appId': $text")
 
         val element = el.asHostObject<Element>()
         element.properties["Text"] = PropertyString("Text", text)
@@ -45,7 +56,7 @@ class VueBridge {
 
     }
     fun insert(appId: String, child: Value, parent: Value) {
-        logger.info("Inserting child into parent for app '$appId'")
+        // logger.info("Inserting child into parent for app '$appId'")
 
         val childEl = child.asHostObject<Element>()
         val parentEl = parent.asHostObject<ElementContainer>()
@@ -56,16 +67,43 @@ class VueBridge {
 
     }
     fun patchProp(appId: String, el: Value, key: String, prevValue: Value, nextValue: Value) {
-        logger.info("Patching property '$key' for app '$appId': $prevValue -> $nextValue")
+        // logger.info("Patching property '$key' for app '$appId': $prevValue -> $nextValue")
 
         val element = el.asHostObject<Element>()
 
-        if(key == "style") {
-            nextValue.memberKeys.forEach {
-                val styleKey = it.toString()
-                val styleValue = nextValue.getMember(it).asString()
-                element.properties["$styleKey"] = PropertyNumber(styleKey, styleValue.toInt())
+        fun clearPropertiesWithOrigin(origin: PropertyOrigin) {
+            element.properties = element.properties.filter { it.value.origin != origin }.toMutableMap()
+        }
+
+        when(key) {
+            "style" -> {
+                // Clear existing style properties
+                clearPropertiesWithOrigin(PropertyOrigin.Style)
+
+                nextValue.memberKeys.forEach {
+                    val styleKey = it.toString()
+                    val styleValue = nextValue.getMember(it).asString()
+                    element.properties["$styleKey"] = PropertyNumber(styleKey, styleValue.toInt()).apply { origin =
+                        PropertyOrigin.Style
+                    }
+                }
+            }
+            "class" -> {
+                // Clear existing style properties
+                clearPropertiesWithOrigin(PropertyOrigin.Class)
+
+                val classes = nextValue.asString()?.split(" ") ?: emptyList()
+                classes.forEach {
+                    StyleRegistry.getPropertiesForClass(it).forEach {
+                        element.properties[it.name] = it
+                    }
+                }
+            }
+            else -> {
+                logger.warning("Unknown property '$key', ignoring")
             }
         }
+
+
     }
 }
