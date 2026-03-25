@@ -1,0 +1,3 @@
+[submodule "src/vuetale"]
+	path = src/vuetale
+	url = https://github.com/KelpyCode/Vuetale-Core
