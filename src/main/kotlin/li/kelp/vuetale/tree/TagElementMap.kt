@@ -5,9 +5,8 @@ import java.util.Locale.getDefault
 import kotlin.reflect.KClass
 
 
-val TagElementMap: Map<String, KClass<out Element>> = mapOf(
+val TagElementMap: MutableMap<String, KClass<out Element>> = mutableMapOf(
     "div" to GroupElement::class,
-    "group" to GroupElement::class,
 
     "label" to LabelElement::class,
     "p" to LabelElement::class,

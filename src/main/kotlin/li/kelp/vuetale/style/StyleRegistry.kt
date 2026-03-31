@@ -4,10 +4,11 @@ import li.kelp.vuetale.property.Property
 import li.kelp.vuetale.property.PropertyMap
 import li.kelp.vuetale.property.PropertyNumber
 import li.kelp.vuetale.property.PropertyOrigin
-import li.kelp.vuetale.property.PropertyRef
+import li.kelp.vuetale.property.PropertyEnum
 import org.graalvm.polyglot.Value
 
-class UnsupportedSelectorException(selector: String, why: String = "") : Exception("Unsupported selector: $selector" + (if(why.isNotEmpty()) " ($why)" else ""))
+class UnsupportedSelectorException(selector: String, why: String = "") :
+    Exception("Unsupported selector: $selector" + (if (why.isNotEmpty()) " ($why)" else ""))
 
 object StyleRegistry {
     val styles = mutableMapOf<String, Value>()
@@ -21,11 +22,11 @@ object StyleRegistry {
             val selectors = selectorStr.split(",").map { it.trim() }
             val selectors2 = selectors.map {
                 val entries = it.split(" ")
-                if(entries.size > 1) {
+                if (entries.size > 1) {
                     throw UnsupportedSelectorException(it, "Deep selectors are not supported yet")
                 }
 
-                if(!entries[0].startsWith(".")) {
+                if (!entries[0].startsWith(".")) {
                     throw UnsupportedSelectorException(it, "Only class selectors are supported yet")
                 }
 
@@ -34,10 +35,10 @@ object StyleRegistry {
             }
 
             selectors2.forEach { pair ->
-                    val selectorStr = pair.first
-                    val properties = pair.second
+                val selectorStr = pair.first
+                val properties = pair.second
                 // Init list if not exists
-                if(!classProperties.containsKey(selectorStr)) {
+                if (!classProperties.containsKey(selectorStr)) {
                     classProperties[selectorStr] = mutableListOf<Property>()
                 }
 
@@ -86,7 +87,6 @@ object StyleRegistry {
     fun styleToProperty(key: String, value: Value): List<Property> {
 
 
-
         class MapBuilder() {
             var map = PropertyMap("", mutableMapOf())
 
@@ -109,10 +109,22 @@ object StyleRegistry {
 
         }
 
-        return when(key) {
-            "color" -> listOf(PropertyRef("Color", value.asString()))
-            "anchorLeft" -> listOf(PropertyMap("Anchor", mutableMapOf("left" to PropertyNumber("left", value.asString().toInt()))))
-            "anchorRight" -> listOf(PropertyMap("Anchor", mutableMapOf("right" to PropertyNumber("right", value.asString().toInt()))))
+        return when (key) {
+            "color" -> listOf(PropertyEnum("Color", value.asString()))
+            "anchorLeft" -> listOf(
+                PropertyMap(
+                    "Anchor",
+                    mutableMapOf("left" to PropertyNumber("left", value.asString().toInt()))
+                )
+            )
+
+            "anchorRight" -> listOf(
+                PropertyMap(
+                    "Anchor",
+                    mutableMapOf("right" to PropertyNumber("right", value.asString().toInt()))
+                )
+            )
+
             else -> listOf()
         }
     }

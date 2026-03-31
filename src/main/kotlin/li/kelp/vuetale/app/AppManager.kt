@@ -1,9 +1,14 @@
 ﻿package li.kelp.vuetale.app
 
 import li.kelp.vuetale.javascript.JSEngine
+import li.kelp.vuetale.tree.initializeElements
 
 
 object AppManager {
+    init {
+        initializeElements()
+    }
+
     val apps: MutableMap<String, App> = mutableMapOf()
 
     fun getAppId(owner: String, type: AppType): String {

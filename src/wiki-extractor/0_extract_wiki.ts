@@ -38,6 +38,7 @@ export type EventCallback = {
 
 export type ParsedElement = {
   name: string;
+  acceptsChildElements: boolean;
   properties: ElementProperty[];
   callbacks: EventCallback[];
 };
@@ -60,7 +61,7 @@ export type ParsedType = ParsedObjectType | ParsedEnumType;
 
 export type ExtractionResult = {
   types: Record<string, Record<string, string> | string[]>;
-  elements: Record<string, ElementProperty[]>;
+  elements: Record<string, { properties: ElementProperty[]; acceptsChildElements: boolean }>;
   eventCallbacks: Record<string, EventCallback[]>;
   metadata: {
     generatedAt: string;
@@ -148,6 +149,24 @@ function parseNameFromTitle(doc: Element): string {
   return normalizeWhitespace(h1?.textContent ?? "");
 }
 
+function parseAcceptsChildElements(root: Element): boolean {
+  const paragraphs = [...root.querySelectorAll("p")];
+  for (const p of paragraphs) {
+    const strong = p.querySelector("strong");
+    if (
+      strong &&
+      normalizeWhitespace(strong.textContent ?? "").toLowerCase().includes(
+        "accepts child elements",
+      )
+    ) {
+      return normalizeWhitespace(p.textContent ?? "").toLowerCase().includes(
+        "yes",
+      );
+    }
+  }
+  return false;
+}
+
 export function parseElementPage(html: string): ParsedElement {
   const doc = new DOMParser().parseFromString(html, "text/html");
   if (!doc) {
@@ -155,6 +174,7 @@ export function parseElementPage(html: string): ParsedElement {
   }
 
   const name = parseNameFromTitle(doc as unknown as Element);
+  const acceptsChildElements = parseAcceptsChildElements(doc as unknown as Element);
   const propertiesHeading = findHeadingByText(doc as unknown as Element, "Properties");
   const propertiesTable = findNextTableAfterHeading(propertiesHeading);
   const callbacksHeading = findHeadingByText(
@@ -182,7 +202,7 @@ export function parseElementPage(html: string): ParsedElement {
       .filter((row) => row.name.length > 0)
     : [];
 
-  return { name, properties, callbacks };
+  return { name, acceptsChildElements, properties, callbacks };
 }
 
 export function parseTypePage(html: string): ParsedType {
@@ -425,13 +445,16 @@ export async function runExtraction(indexUrl = DEFAULT_INDEX_URL): Promise<Extra
   for (const [elementName, parsedElement] of [...elementPages.entries()].sort((a, b) =>
     a[0].localeCompare(b[0])
   )) {
-    elements[elementName] = parsedElement.properties
-      .map((property) => ({
-        name: property.name,
-        type: property.type,
-        description: property.description,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    elements[elementName] = {
+      acceptsChildElements: parsedElement.acceptsChildElements,
+      properties: parsedElement.properties
+        .map((property) => ({
+          name: property.name,
+          type: property.type,
+          description: property.description,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
 
     eventCallbacks[elementName] = parsedElement.callbacks.sort((a, b) =>
       a.name.localeCompare(b.name)

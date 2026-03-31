@@ -1,6 +1,5 @@
 ﻿package li.kelp.vuetale.javascript
 
-import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.property.PropertyNumber
 import li.kelp.vuetale.property.PropertyOrigin
 import li.kelp.vuetale.property.PropertyString
@@ -8,7 +7,8 @@ import li.kelp.vuetale.style.StyleRegistry
 import li.kelp.vuetale.tree.Element
 import li.kelp.vuetale.tree.ElementContainer
 import li.kelp.vuetale.tree.GroupElement
-import li.kelp.vuetale.tree.getElementClassForTag
+import li.kelp.vuetale.util.ReflectUtil
+import li.kelp.vuetale.validator.PropertyValidator.canHaveProperty
 import org.graalvm.polyglot.Value
 import java.util.logging.Logger
 
@@ -26,13 +26,13 @@ class VueBridge {
     fun createElement(appId: String, tag: String): Element {
         // logger.info("Creating element with tag '$tag' for app '$appId'")
 
-        val elementClass = getElementClassForTag(tag)
+        val elementClass = Element.findElementClassByTag(tag)
         if(elementClass == null) {
             logger.warning("Unknown tag '$tag', defaulting to 'group'")
             return GroupElement()
         }
 
-        return elementClass.constructors.first().call()
+        return ReflectUtil.createInstance<Element>(elementClass)
     }
     fun createText(appId: String, text: String) {
 
@@ -59,9 +59,13 @@ class VueBridge {
         // logger.info("Inserting child into parent for app '$appId'")
 
         val childEl = child.asHostObject<Element>()
-        val parentEl = parent.asHostObject<ElementContainer>()
+        val parentEl = parent.asHostObject<Element>()
 
-        childEl.appendTo(parentEl)
+        if(parentEl is ElementContainer) {
+            parentEl.appendChild(childEl)
+        } else {
+            logger.warning("Parent element ${parentEl.id} is not a container, cannot append child ${childEl.id}")
+        }
     }
     fun remove(appId: String) {
 
@@ -93,14 +97,29 @@ class VueBridge {
                 clearPropertiesWithOrigin(PropertyOrigin.Class)
 
                 val classes = nextValue.asString()?.split(" ") ?: emptyList()
-                classes.forEach {
-                    StyleRegistry.getPropertiesForClass(it).forEach {
-                        element.properties[it.name] = it
+                classes.forEach { c ->
+                    StyleRegistry.getPropertiesForClass(c).forEach {
+                        try {
+                            element.setPropertySafe(it.name, it)
+                        } catch (e: Exception) {
+                            logger.warning("Failed to set property '${it.name}' from class '$c': ${e.message}")
+                        }
                     }
                 }
             }
+            "id" -> {
+                element.customId = nextValue.asString()
+            }
             else -> {
-                logger.warning("Unknown property '$key', ignoring")
+                if(nextValue.isNull) {
+                    element.properties.remove(key)
+                    return
+                }
+                else if(element.canHaveProperty(key)) {
+                    element.properties[key] = PropertyString(key, nextValue.asString()).apply { origin = PropertyOrigin.Attribute }
+                } else {
+                    logger.warning("Unknown property '$key', ignoring")
+                }
             }
         }
 

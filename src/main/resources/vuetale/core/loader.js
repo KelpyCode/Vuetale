@@ -1,6 +1,6 @@
 import "vue";
 import { hytaleRenderer as r } from "./renderer.js";
-import { _ as o } from "./App.vue_vue_type_script_setup_true_lang-4h7skIh4.js";
+import { _ as o } from "./App.vue_vue_type_script_setup_true_lang-ZWKSyU9L.js";
 import { flushPendingStyles as s, applyStyles as a } from "./styles.js";
 function c(e, t) {
   globalThis[e] = t;

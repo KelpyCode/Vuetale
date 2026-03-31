@@ -1,4 +1,4 @@
-import { _ as f } from "./App.vue_vue_type_script_setup_true_lang-4h7skIh4.js";
+import { _ as f } from "./App.vue_vue_type_script_setup_true_lang-ZWKSyU9L.js";
 export {
   f as default
 };

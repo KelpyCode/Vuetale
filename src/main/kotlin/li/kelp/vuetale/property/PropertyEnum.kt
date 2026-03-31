@@ -1,6 +1,6 @@
 ﻿package li.kelp.vuetale.property
 
-class PropertyNumber(name: String, var value: Number?) : Property(name) {
+class PropertyEnum(name: String, var value: String?) : Property(name) {
     override fun render(): String? {
         this.varRef ?: return renderAsVariable()
         

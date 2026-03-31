@@ -10,22 +10,21 @@ object RenderUtil {
 
     fun simpleElementRender(element: Element, depth: Int): String {
         var render = indent(depth)
-        val properties = element.renderProperties(depth + 1)
 
-        var selector = "${element.elementType}"
-        selector += " #${element.id}"
+        var selector = renderSelector(element)
 
         render += "$selector {\n"
 
-        if(!properties.isEmpty()) {
+        val properties = element.renderProperties(depth + 1)
+        if (!properties.isEmpty()) {
             render += properties
 
             render += "\n"
         }
 
-        if(element is GroupElement) {
+        if (element is GroupElement) {
             val childrenRendered = element.children?.mapNotNull { it.render(depth + 1) }
-            if(childrenRendered != null) {
+            if (childrenRendered != null) {
                 render += childrenRendered.joinToString("\n")
             }
         }
@@ -34,5 +33,12 @@ object RenderUtil {
         render += "}\n"
 
         return render
+    }
+
+    private fun renderSelector(element: Element): String {
+        var selector = "${element.tag}"
+
+        selector += " #${element.customId ?: element.id}"
+        return selector
     }
 }

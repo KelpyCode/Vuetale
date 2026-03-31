@@ -5,7 +5,7 @@ import li.kelp.vuetale.util.RenderUtil.indent
 import li.kelp.vuetale.util.RenderUtil.simpleElementRender
 import org.graalvm.polyglot.Value
 
-abstract class Element(val tag: String) {
+abstract class Element(var tag: String) {
     @JvmField
     var _vnode: Value = Value.asValue(null) // Placeholder for the virtual node representation
 
@@ -24,6 +24,12 @@ abstract class Element(val tag: String) {
             } while (idElementMap.containsKey(id))
             return "vt_" + id
         }
+
+        val supportedProperties = setOf<String>()
+
+        fun findElementClassByTag(tag: String): Class<out Element>? {
+            return elementTagMap[tag.lowercase().replace("-", "")]
+        }
     }
 
     open fun render(depth: Int): String {
@@ -37,11 +43,18 @@ abstract class Element(val tag: String) {
         return properties.mapNotNull { indent(depth) + it.value.render() }.joinToString(";\n") + ";\n"
     }
 
-    abstract val elementType: String
     val id: String
+    var customId: String? = null
     var parent: ElementContainer? = null
+    var properties:  MutableMap<String, Property> = mutableMapOf()
 
-    var properties = mutableMapOf<String, Property>()
+    fun setPropertySafe(name: String, property: Property) {
+        if (supportedProperties.contains(name)) {
+            properties[name] = property
+        } else {
+            throw IllegalArgumentException("Property '$name' is not supported for element type '$tag'.")
+        }
+    }
 
     init {
         id = generateId()

@@ -3,13 +3,15 @@ import {
   extractTypeCandidates,
   parseElementPage,
   parseTypePage,
-} from "./main.ts";
+} from "./0_extract_wiki.ts";
+import { buildUiExtractionResult, parseTopLevelDefinitions } from "./1_extract_ui.ts";
 
 Deno.test("parseElementPage extracts properties and callbacks", () => {
   const html = `
     <html>
       <body>
         <h1>ActionButton</h1>
+        <p><strong>Accepts child elements:</strong> No</p>
         <h2 id="properties">Properties</h2>
         <div>
           <table>
@@ -41,6 +43,7 @@ Deno.test("parseElementPage extracts properties and callbacks", () => {
 
   const parsed = parseElementPage(html);
   assertEquals(parsed.name, "ActionButton");
+  assertEquals(parsed.acceptsChildElements, false);
   assertEquals(parsed.properties.length, 2);
   assertEquals(parsed.properties[0].name, "Alignment");
   assertEquals(parsed.properties[0].type, "ActionButtonAlignment");
@@ -48,6 +51,21 @@ Deno.test("parseElementPage extracts properties and callbacks", () => {
   assertEquals(parsed.callbacks.length, 2);
   assertEquals(parsed.callbacks[0].name, "Activating");
   assertEquals(parsed.callbacks[1].description, "When double clicked.");
+});
+
+Deno.test("parseElementPage detects acceptsChildElements=true", () => {
+  const html = `
+    <html>
+      <body>
+        <h1>Panel</h1>
+        <p><strong>Accepts child elements:</strong> Yes</p>
+        <h2 id="properties">Properties</h2>
+        <table><thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead><tbody></tbody></table>
+      </body>
+    </html>
+  `;
+  const parsed = parseElementPage(html);
+  assertEquals(parsed.acceptsChildElements, true);
 });
 
 Deno.test("parseTypePage parses object-like type table", () => {
@@ -112,4 +130,49 @@ Deno.test("extractTypeCandidates handles unions and generics", () => {
 
   const fromDictionary = extractTypeCandidates("Dictionary`2");
   assertEquals(fromDictionary, []);
+});
+
+Deno.test("parseTopLevelDefinitions only returns root-level @ assignments", () => {
+  const source = `
+@VarA = 10;
+
+@Container = Group {
+  @NestedAlias = Label {
+    Text: "ignore me";
+  };
+
+  Label {
+    Text: "still nested";
+  }
+};
+
+@VarB = Anchor(Width: 20);
+`;
+
+  const definitions = parseTopLevelDefinitions(source);
+  assertEquals(definitions.map((definition) => definition.name), [
+    "VarA",
+    "Container",
+    "VarB",
+  ]);
+});
+
+Deno.test("buildUiExtractionResult splits element definitions and vars", () => {
+  const source = `
+@DefaultButtonDefaultBackground = PatchStyle(TexturePath: "Common/Buttons/Primary.png", Border: 12);
+@DefaultButtonStyle = ButtonStyle(Default: (Background: @DefaultButtonDefaultBackground));
+
+@CancelTextButton = TextButton {
+  Style: @DefaultButtonStyle;
+};
+`;
+
+  const result = buildUiExtractionResult(source);
+  assertEquals(result.elements, {
+    CancelTextButton: "TextButton",
+  });
+  assertEquals(result.vars, [
+    "DefaultButtonDefaultBackground",
+    "DefaultButtonStyle",
+  ]);
 });

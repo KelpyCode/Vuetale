@@ -1,9 +1,11 @@
 ﻿package li.kelp.vuetale.property
 
-class PropertyString(name: String, var value: String?): Property(name) {
+class PropertyString(name: String, var value: String?) : Property(name) {
 
     fun escapeValue(): String? {
-        if(value == null) {
+        this.varRef ?: return renderAsVariable()
+
+        if (value == null) {
             return null
         }
 
@@ -11,7 +13,7 @@ class PropertyString(name: String, var value: String?): Property(name) {
     }
 
     override fun render(): String? {
-        if(value == null) {
+        if (value == null) {
             return null
         }
 
