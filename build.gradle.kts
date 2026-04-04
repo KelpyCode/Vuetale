@@ -36,19 +36,31 @@ hytale {
 }
 
 tasks.shadowJar {
-    // GraalVM polyglot dependencies include POM-packaged artifacts that Shadow JAR
-    // mistakenly tries to expand as ZIP archives — exclude them explicitly.
-    exclude("*.pom")
     isZip64 = true
-
-    // Only include actual JAR files from the runtime classpath, not POM/BOM files.
-    // This prevents Shadow JAR from trying to open .pom files as ZIP archives.
-    val runtimeJarsOnly = project.configurations.getByName("runtimeClasspath")
-        .resolvedConfiguration.resolvedArtifacts
-        .filter { it.extension == "jar" }
-        .map { it.file }
-    from(runtimeJarsOnly)
+    // Disable Shadow's default configuration processing — we supply sources manually below.
     configurations = emptyList()
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/INDEX.LIST")
+
+    // Use an artifactView that requests only "jar"-typed artifacts.
+    // GraalVM polyglot ships POM-only aggregator modules (e.g. org.graalvm.js:js) that
+    // Shadow would otherwise try to expand as ZIP archives, causing a build failure.
+    // lenient(true) silently skips any artifact that cannot satisfy the "jar" type.
+    //
+    // Each file is also wrapped in zipTree() so that Shadow merges the class files
+    // directly into the fat JAR. Passing plain File references would embed the dependency
+    // JARs as nested archives (not merged), which is why kotlin-stdlib was missing before.
+    from(
+        project.configurations.getByName("runtimeClasspath").incoming
+            .artifactView {
+                lenient(true)
+                attributes {
+                    attribute(Attribute.of("artifactType", String::class.java), "jar")
+                }
+            }
+            .files
+            .elements
+            .map { locations -> locations.map { project.zipTree(it.asFile) } }
+    )
 }
 
 tasks.test {
