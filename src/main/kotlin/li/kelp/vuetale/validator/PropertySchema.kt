@@ -74,6 +74,15 @@ class Schema {
         return execute(declaration, property, value)
     }
 
+    private fun executeInterface(declaration: SchemaInterfaceDeclaration, propertyName: String, value: Value): PropertyRecord {
+        val map = mutableMapOf<String, Property>()
+        for (subField in declaration.fields) {
+            if (!value.hasMember(subField.name)) continue
+            val subValue = value.getMember(subField.name)
+            execute(declaration, subField.name, subValue)?.let { map[subField.name] = it }
+        }
+        return PropertyRecord(propertyName, map)
+    }
 
     fun execute(declaration: SchemaDeclaration, property: String, value: Value): Property? {
         if (value.isNull) return null
@@ -112,7 +121,7 @@ class Schema {
                         if (enums[ref] != null) {
                             return execute(enums[ref]!!, property, value)
                         } else {
-                            return execute(interfaces[ref]!!, property, value)
+                            return executeInterface(interfaces[ref]!!, property, value)
                         }
                     }
 
@@ -120,15 +129,10 @@ class Schema {
                         val ref = field.ref!!
 
                         val list = mutableListOf<Property>()
-                        // value is JS array
-                        /* value..valuesList.forEach {
-                             list.add(execute(interfaces[ref]!!, property, it))
-                         }*/
-
                         val size = value.arraySize
                         for (i in 0 until size) {
                             val item = value.getArrayElement(i)
-                            execute(interfaces[ref]!!, property, item)?.let { list.add(it) }
+                            list.add(executeInterface(interfaces[ref]!!, property, item))
                         }
 
                         return PropertyArray(property, list)
@@ -140,7 +144,7 @@ class Schema {
                         if (value.isString) {
                             return PropertyString(property, value.asString())
                         } else {
-                            return execute(interfaces[ref]!!, property, value)
+                            return executeInterface(interfaces[ref]!!, property, value)
                         }
                     }
 

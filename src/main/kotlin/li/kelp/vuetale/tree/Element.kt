@@ -4,6 +4,7 @@ import li.kelp.vuetale.app.App
 import li.kelp.vuetale.property.Property
 import li.kelp.vuetale.util.RenderUtil.indent
 import li.kelp.vuetale.util.RenderUtil.simpleElementRender
+import li.kelp.vuetale.validator.canHaveProperty
 import org.graalvm.polyglot.Value
 
 abstract class Element(var tag: String) {
@@ -54,7 +55,7 @@ abstract class Element(var tag: String) {
     var varName: String? = null
 
     fun setPropertySafe(name: String, property: Property) {
-        if (supportedProperties.contains(name)) {
+        if (this.canHaveProperty(name)) {
             properties[name] = property
         } else {
             throw IllegalArgumentException("Property '$name' is not supported for element type '$tag'.")
