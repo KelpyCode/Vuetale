@@ -1,4 +1,4 @@
-import uiTypes from "./hytale-ui-types.json" with { type: "json" }
+import uiTypes from "./output/hytale-ui-types.json" with { type: "json" }
 import commonDefs from "./output/common-ui-definitions.json" with { type: "json" }
 
 function toLowerCamelCase(str: string): string {
@@ -180,6 +180,120 @@ class ${key}Element() : Element${type.acceptsChildElements ? 'Container' : ''}("
     Deno.writeTextFileSync("output/Elements.kt", s)
 }
 
+function generateKotlinSchemas() {
+
+    const typeMap = {
+        "String": ["String"],
+        "Char": ["String"],
+        "Integer": ["Number"],
+        "Boolean": ["Boolean"],
+        "Number": ["Number"],
+        "Decimal": ["Number"],
+        "Double": ["Number"],
+        "Float": ["Number"],
+        "Tab[]": ["RefArray", "Tab"],
+        "ClientItemStack[]": ["RefArray", "ClientItemStack"],
+        "ItemGridSlot[]": ["RefArray", "ItemGridSlot"],
+        "ClientItemMetadata": ["Record"],
+        "List<String>": ["Array", "String"],
+        "List<PatchStyle>": ["RefArray", "PatchStyle"],
+        "List<LabelSpan>": ["RefArray", "LabelSpan"],
+        "ColorOption": ["String"],
+        "List<ColorOption>": ["Array", "String"],
+        "Map": ["Record"],
+        "PatchStyle / String": ["RefOrString", "PatchStyle"],
+        "UI Path (String)": ["String"],
+        "Dictionary`2": ["Record"],
+        "IReadOnlyList`1": ["Record"],
+        "Color": ["ColorString"],
+        "Font Name (String)": ["String"],
+    }
+
+    function parseListType(type: string): string | null {
+        const match = type.match(/^List<(.+)>$/)
+        if (!match) {
+            return null
+        } return match[1]
+    }
+
+    let s = [`package li.kelp.vuetale.validator\n`]
+
+    s.push(`var propertySchema: Schema? = null`)
+    s.push(``)
+
+    s.push(`fun initializeSchemas() {`)
+
+    s.push(`propertySchema = buildSchema {`)
+    for (const key of Object.keys(uiTypes.types)) {
+        const type = uiTypes.types[key as keyof typeof uiTypes.types]
+        const indent = "    "
+        if (Array.isArray(type)) {
+            s.push(`${indent}enum("${key}", listOf(${type.map(v => `"${v}"`).join(", ")}))`)
+        } else {
+            s.push(`${indent}type("${key}", listOf(`)
+            for (const field of Object.keys(type)) {
+                const fieldType = type[field as keyof typeof type]
+
+                let resolvedType = typeMap[fieldType as keyof typeof typeMap]
+
+                let ref = resolvedType?.[0] ?? key
+
+                // Find ref in types
+                const found = uiTypes.types[ref as keyof typeof uiTypes.types]
+                if (found) {
+                    ref = `PropertyType.Ref, "${fieldType}"`
+                } else {
+                    ref = resolvedType?.[0] ?? "Unknown"
+                    ref = "PropertyType." + ref
+
+                    if (resolvedType?.[1]) {
+                        ref += `, "${resolvedType[1]}"`
+                    }
+                }
+
+                s.push(`${indent}${indent}SchemaField("${field}", ${ref}),`)
+            }
+            s.push(`${indent}))`)
+        }
+    }
+
+    for (const key of Object.keys(uiTypes.elements)) {
+        const element = uiTypes.elements[key as keyof typeof uiTypes.elements]
+        const indent = "    "
+        s.push(`${indent}element("${key}", listOf(`)
+        for (const prop of Object.values(element.properties)) {
+            const field = prop.name
+            const fieldType = prop.type
+
+            let resolvedType = typeMap[fieldType as keyof typeof typeMap]
+
+            let ref = resolvedType?.[0] ?? key
+
+            // Find ref in types
+            const found = uiTypes.types[fieldType as keyof typeof uiTypes.types]
+            if (found) {
+                ref = `PropertyType.Ref, "${fieldType}"`
+            } else {
+                ref = resolvedType?.[0] ?? "Unknown"
+                ref = "PropertyType." + ref
+
+                if (resolvedType?.[1]) {
+                    ref += `, "${resolvedType[1]}"`
+                }
+            }
+
+            s.push(`${indent}${indent}SchemaField("${field}", ${ref}),`)
+        }
+        s.push(`${indent}))`)
+    }
+    s.push(`}`)
+
+    s.push(`}`)
+
+    Deno.writeTextFileSync("output/PropertySchemas.kt", s.join("\n"))
+}
+
 generateTypeScriptTypes()
 generateTypeScriptCommonPrefabs()
 generateKotlin()
+generateKotlinSchemas()

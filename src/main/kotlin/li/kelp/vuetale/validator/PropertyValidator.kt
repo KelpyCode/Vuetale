@@ -5,7 +5,7 @@ import li.kelp.vuetale.tree.Element
 object PropertyValidator {
     val supportedPropertyPerType: MutableMap<Class<out Element>, List<String>> = mutableMapOf()
 
-    fun Element.canHaveProperty(property: String): Boolean {
+    fun Element.canHavePropertyOld(property: String): Boolean {
         val supportedProperties = supportedPropertyPerType[this.javaClass] ?: return false
         return supportedProperties.contains(property)
     }

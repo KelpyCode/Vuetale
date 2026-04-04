@@ -1,7 +1,7 @@
 ﻿package li.kelp.vuetale.style
 
 import li.kelp.vuetale.property.Property
-import li.kelp.vuetale.property.PropertyMap
+import li.kelp.vuetale.property.PropertyRecord
 import li.kelp.vuetale.property.PropertyNumber
 import li.kelp.vuetale.property.PropertyOrigin
 import li.kelp.vuetale.property.PropertyEnum
@@ -60,12 +60,12 @@ object StyleRegistry {
         val grouped = properties.groupBy { it.name }
 
         val merged = grouped.map { (_, group) ->
-            if (group.all { it is PropertyMap }) {
+            if (group.all { it is PropertyRecord }) {
                 // All entries are maps: merge their sub-properties, highest origin wins per sub-key
                 val highestOrigin = group.maxOf { it.origin }
                 val mergedMap = mutableMapOf<String, Property>()
                 for (prop in group) {
-                    val mapProp = prop as PropertyMap
+                    val mapProp = prop as PropertyRecord
                     for ((subKey, subProp) in mapProp.map) {
                         val existing = mergedMap[subKey]
                         if (existing == null || subProp.origin >= existing.origin) {
@@ -73,7 +73,7 @@ object StyleRegistry {
                         }
                     }
                 }
-                PropertyMap(group.first().name, mergedMap).also { it.origin = highestOrigin }
+                PropertyRecord(group.first().name, mergedMap).also { it.origin = highestOrigin }
             } else {
                 // Not all maps: keep the entry with the highest origin
                 group.maxByOrNull { it.origin }!!
@@ -88,7 +88,7 @@ object StyleRegistry {
 
 
         class MapBuilder() {
-            var map = PropertyMap("", mutableMapOf())
+            var map = PropertyRecord("", mutableMapOf())
 
             fun name(name: String) {
                 map.name = name
@@ -112,14 +112,14 @@ object StyleRegistry {
         return when (key) {
             "color" -> listOf(PropertyEnum("Color", value.asString()))
             "anchorLeft" -> listOf(
-                PropertyMap(
+                PropertyRecord(
                     "Anchor",
                     mutableMapOf("left" to PropertyNumber("left", value.asString().toInt()))
                 )
             )
 
             "anchorRight" -> listOf(
-                PropertyMap(
+                PropertyRecord(
                     "Anchor",
                     mutableMapOf("right" to PropertyNumber("right", value.asString().toInt()))
                 )

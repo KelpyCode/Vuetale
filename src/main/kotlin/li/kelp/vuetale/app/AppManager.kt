@@ -2,11 +2,13 @@
 
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.tree.initializeElements
+import li.kelp.vuetale.validator.initializeSchemas
 
 
 object AppManager {
     init {
         initializeElements()
+        initializeSchemas()
     }
 
     val apps: MutableMap<String, App> = mutableMapOf()
@@ -14,16 +16,19 @@ object AppManager {
     fun getAppId(owner: String, type: AppType): String {
         return "$owner-$type"
     }
+
     private fun getEngine() = JSEngine.instance
 
     fun createApp(id: String, type: AppType): App {
         val fullId = getAppId(id, type)
 
-        if(apps.containsKey(fullId)) {
+        if (apps.containsKey(fullId)) {
             throw IllegalArgumentException("App with id '$id' already exists")
         }
 
-        return App(id, type)
+        return App(id, type).also {
+            addApp(it)
+        }
     }
 
     fun getApp(id: String): App? {

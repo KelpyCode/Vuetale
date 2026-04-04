@@ -2,8 +2,8 @@
 
 class PropertyEnum(name: String, var value: String?) : Property(name) {
     override fun render(): String? {
-        this.varRef ?: return renderAsVariable()
-        
+        if (this.varRef != null) return renderAsVariable()
+
         if (value == null) {
             return null
         }

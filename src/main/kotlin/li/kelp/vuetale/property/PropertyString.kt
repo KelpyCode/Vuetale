@@ -3,7 +3,6 @@
 class PropertyString(name: String, var value: String?) : Property(name) {
 
     fun escapeValue(): String? {
-        this.varRef ?: return renderAsVariable()
 
         if (value == null) {
             return null
@@ -13,6 +12,8 @@ class PropertyString(name: String, var value: String?) : Property(name) {
     }
 
     override fun render(): String? {
+        if (this.varRef != null) return renderAsVariable()
+        
         if (value == null) {
             return null
         }

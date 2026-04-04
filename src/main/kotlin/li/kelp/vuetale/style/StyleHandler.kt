@@ -1,7 +1,7 @@
 ﻿package li.kelp.vuetale.style
 
 import li.kelp.vuetale.property.Property
-import li.kelp.vuetale.property.PropertyMap
+import li.kelp.vuetale.property.PropertyRecord
 import li.kelp.vuetale.property.PropertyNumber
 
 object StyleHandler {
@@ -10,7 +10,7 @@ object StyleHandler {
     init {
 
         class MapBuilder() {
-            var map = PropertyMap("", mutableMapOf())
+            var map = PropertyRecord("", mutableMapOf())
 
             fun name(name: String) {
                 map.name = name

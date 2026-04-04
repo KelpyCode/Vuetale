@@ -1,9 +1,9 @@
 ﻿package li.kelp.vuetale.property
 
-class PropertyMap(name: String, var map: MutableMap<String, Property> = mutableMapOf()) : Property(name) {
+class PropertyRecord(name: String, var map: MutableMap<String, Property> = mutableMapOf()) : Property(name) {
     override fun render(): String? {
-        this.varRef ?: return renderAsVariable()
-        
+        if (this.varRef != null) return renderAsVariable()
+
         if (map.isEmpty()) {
             return null
         }

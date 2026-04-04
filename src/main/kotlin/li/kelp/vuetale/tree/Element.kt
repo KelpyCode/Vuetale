@@ -1,5 +1,6 @@
 ﻿package li.kelp.vuetale.tree
 
+import li.kelp.vuetale.app.App
 import li.kelp.vuetale.property.Property
 import li.kelp.vuetale.util.RenderUtil.indent
 import li.kelp.vuetale.util.RenderUtil.simpleElementRender
@@ -37,16 +38,20 @@ abstract class Element(var tag: String) {
     }
 
     fun renderProperties(depth: Int): String {
-        if(properties.isEmpty()) {
+        if (properties.isEmpty()) {
             return ""
         }
         return properties.mapNotNull { indent(depth) + it.value.render() }.joinToString(";\n") + ";\n"
     }
 
     val id: String
+    var app: App? = null
     var customId: String? = null
     var parent: ElementContainer? = null
-    var properties:  MutableMap<String, Property> = mutableMapOf()
+    var properties: MutableMap<String, Property> = mutableMapOf()
+
+    var varFrom: String? = null
+    var varName: String? = null
 
     fun setPropertySafe(name: String, property: Property) {
         if (supportedProperties.contains(name)) {

@@ -1,11 +1,22 @@
 ﻿package li.kelp.vuetale.util
 
+import li.kelp.vuetale.app.App
 import li.kelp.vuetale.tree.Element
 import li.kelp.vuetale.tree.GroupElement
 
 object RenderUtil {
     fun indent(depth: Int): String {
         return "  ".repeat(depth)
+    }
+
+    fun renderImports(app: App): String {
+        var render = ""
+
+        app.dependencies.forEach {
+            render += "\$${it.value.name}: \"${it.value.origin}\";\n"
+        }
+
+        return render
     }
 
     fun simpleElementRender(element: Element, depth: Int): String {
@@ -36,7 +47,11 @@ object RenderUtil {
     }
 
     private fun renderSelector(element: Element): String {
-        var selector = "${element.tag}"
+        var selector = if (element.app != null && element.varFrom != null && element.varName != null) {
+            val dep = element.app!!.getDependencyName(element.varFrom!!)
+            "\$$dep.@${element.varName}"
+        } else element.tag
+
 
         selector += " #${element.customId ?: element.id}"
         return selector
