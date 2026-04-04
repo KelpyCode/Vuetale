@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./logo.png" style="max-height: 300px;" />
+</p>
+
 # Vuetale
 
 **Modern Vue.js + TypeScript UI development for Hytale mods.**
