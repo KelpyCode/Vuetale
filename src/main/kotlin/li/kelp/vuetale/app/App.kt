@@ -58,6 +58,7 @@ class App(val owner: String, val type: AppType) {
         }
 
         getEngine().evalScript("_vt.getUserApp('${getId()}').mount(_vt.getUserAppRef('${getId()}').getRoot());")
+        logger.info("Mounted App '${getId()}'")
         isMounted = true
     }
 
