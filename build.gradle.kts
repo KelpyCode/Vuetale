@@ -42,6 +42,21 @@ hytale {
     }
 }
 
+// Pass JVMCI flags to the Hytale server process so GraalVM JS can use runtime
+// compilation instead of falling back to interpreter-only mode.
+// -XX:+EnableJVMCI       – activates the JVM Compiler Interface (needed by Truffle)
+// WarnInterpreterOnly=false – suppresses the fallback warning if JVMCI still can't
+//                            be used on this specific JDK build.
+tasks.withType<JavaExec>().configureEach {
+    if (name == "runServer") {
+        jvmArgs(
+            "-XX:+UnlockExperimentalVMOptions",
+            "-XX:+EnableJVMCI",
+            "-Dpolyglot.engine.WarnInterpreterOnly=false"
+        )
+    }
+}
+
 tasks.shadowJar {
     isZip64 = true
     // Use Shadow's standard pipeline so all transformers (mergeServiceFiles, manifest, etc.)
