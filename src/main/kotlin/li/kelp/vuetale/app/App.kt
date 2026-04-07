@@ -1,5 +1,6 @@
 ﻿package li.kelp.vuetale.app
 
+import com.caoccao.javet.values.V8Value
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.tree.RootElement
 import java.util.logging.Logger
@@ -22,7 +23,9 @@ class App(val owner: String, val type: AppType) {
     }
 
     private fun createApp() = getEngine().evalScript("_vt.createUserApp('${getId()}');")
-    private fun updateReference() = getEngine().loaderCtx.getMember("registerUserAppRef").execute(getId(), this)
+    private fun updateReference() {
+        getEngine().loaderCtx.invoke<V8Value>("registerUserAppRef", getId(), this).close()
+    }
 
     private fun getDependencyKey(origin: String): String {
         // Random chars
@@ -57,7 +60,7 @@ class App(val owner: String, val type: AppType) {
             return
         }
 
-        getEngine().evalScript("_vt.getUserApp('${getId()}').mount(_vt.getUserAppRef('${getId()}').getRoot());")
+        getEngine().evalScript("_vt.getUserApp('${getId()}').mount(_vt.getUserAppRef('${getId()}'));")
         logger.info("Mounted App '${getId()}'")
         isMounted = true
     }

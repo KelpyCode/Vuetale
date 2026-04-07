@@ -1,4 +1,4 @@
-import { _ as f } from "./App.vue_vue_type_script_setup_true_lang-EV8U0oK7.js";
+import f from "./components/App.vue.js";
 export {
   f as default
 };

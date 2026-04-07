@@ -1,67 +1,60 @@
 ﻿package li.kelp.vuetale.style
 
+import com.caoccao.javet.values.V8Value
+import com.caoccao.javet.values.reference.V8ValueObject
+import li.kelp.vuetale.javascript.asKtString
+import li.kelp.vuetale.javascript.memberKeys
 import li.kelp.vuetale.property.Property
-import li.kelp.vuetale.property.PropertyRecord
+import li.kelp.vuetale.property.PropertyEnum
 import li.kelp.vuetale.property.PropertyNumber
 import li.kelp.vuetale.property.PropertyOrigin
-import li.kelp.vuetale.property.PropertyEnum
-import org.graalvm.polyglot.Value
+import li.kelp.vuetale.property.PropertyRecord
 
 class UnsupportedSelectorException(selector: String, why: String = "") :
     Exception("Unsupported selector: $selector" + (if (why.isNotEmpty()) " ($why)" else ""))
 
 object StyleRegistry {
-    val styles = mutableMapOf<String, Value>()
-
+    // Raw style values are not stored long-term as V8Values; all processing
+    // happens eagerly inside registerStyle so no V8 references leak.
     val classProperties = mutableMapOf<String, MutableList<Property>>()
 
-    fun registerStyle(name: String, classes: Value) {
-        StyleRegistry.styles[name] = classes
-
-        classes.memberKeys.forEach { selectorStr ->
+    fun registerStyle(name: String, classes: V8ValueObject) {
+        classes.memberKeys().forEach { selectorStr ->
             val selectors = selectorStr.split(",").map { it.trim() }
             val selectors2 = selectors.map {
                 val entries = it.split(" ")
                 if (entries.size > 1) {
                     throw UnsupportedSelectorException(it, "Deep selectors are not supported yet")
                 }
-
                 if (!entries[0].startsWith(".")) {
                     throw UnsupportedSelectorException(it, "Only class selectors are supported yet")
                 }
-
-                val content = classes.getMember(selectorStr)
-                Pair(entries[0].substring(1), content)
+                classes.get<V8ValueObject>(selectorStr).use { content ->
+                    Pair(entries[0].substring(1), content.memberKeys().associateWith { propKey ->
+                        content.get<V8Value>(propKey).use { v -> v.asKtString() }
+                    })
+                }
             }
 
-            selectors2.forEach { pair ->
-                val selectorStr = pair.first
-                val properties = pair.second
-                // Init list if not exists
-                if (!classProperties.containsKey(selectorStr)) {
-                    classProperties[selectorStr] = mutableListOf<Property>()
+            selectors2.forEach { (selectorName, properties) ->
+                if (!classProperties.containsKey(selectorName)) {
+                    classProperties[selectorName] = mutableListOf()
                 }
-
-
-                properties.memberKeys.forEach { propertyName ->
-                    val entries = styleToProperty(propertyName, properties.getMember(propertyName))
-                    classProperties[selectorStr]?.addAll(entries)
+                properties.forEach { (propName, propValue) ->
+                    val entries = styleToProperty(propName, propValue)
+                    classProperties[selectorName]?.addAll(entries)
                 }
-
-                mergeMapProperties(classProperties[selectorStr]!!)
+                mergeMapProperties(classProperties[selectorName]!!)
             }
 
-            println("STYLE:  $selectorStr: ${classes.getMember(selectorStr)}")
+            println("STYLE:  $selectorStr")
         }
     }
 
     fun mergeMapProperties(properties: MutableList<Property>) {
-        // Merge properties with the same name, keeping the one with the highest origin, merge all sub properties if both are maps
         val grouped = properties.groupBy { it.name }
-
         val merged = grouped.map { (_, group) ->
             if (group.all { it is PropertyRecord }) {
-                // All entries are maps: merge their sub-properties, highest origin wins per sub-key
                 val highestOrigin = group.maxOf { it.origin }
                 val mergedMap = mutableMapOf<String, Property>()
                 for (prop in group) {
@@ -75,63 +68,29 @@ object StyleRegistry {
                 }
                 PropertyRecord(group.first().name, mergedMap).also { it.origin = highestOrigin }
             } else {
-                // Not all maps: keep the entry with the highest origin
                 group.maxByOrNull { it.origin }!!
             }
         }
-
         properties.clear()
         properties.addAll(merged)
     }
 
-    fun styleToProperty(key: String, value: Value): List<Property> {
-
-
-        class MapBuilder() {
-            var map = PropertyRecord("", mutableMapOf())
-
-            fun name(name: String) {
-                map.name = name
-            }
-
-            fun entry(key: String, value: Property) {
-                map.map[key] = value
-            }
-        }
-
-        fun map(mb: MapBuilder.() -> Unit) {
-
-        }
-
-        map {
-            name("Anchor")
-            entry("left", PropertyNumber("left", value.asString().toInt()))
-
-        }
-
+    /** Convert a single CSS-style property name/value pair to [Property] instances. */
+    fun styleToProperty(key: String, value: String): List<Property> {
         return when (key) {
-            "color" -> listOf(PropertyEnum("Color", value.asString()))
+            "color" -> listOf(PropertyEnum("Color", value))
             "anchorLeft" -> listOf(
-                PropertyRecord(
-                    "Anchor",
-                    mutableMapOf("left" to PropertyNumber("left", value.asString().toInt()))
-                )
+                PropertyRecord("Anchor", mutableMapOf("left" to PropertyNumber("left", value.toInt())))
             )
-
             "anchorRight" -> listOf(
-                PropertyRecord(
-                    "Anchor",
-                    mutableMapOf("right" to PropertyNumber("right", value.asString().toInt()))
-                )
+                PropertyRecord("Anchor", mutableMapOf("right" to PropertyNumber("right", value.toInt())))
             )
-
             else -> listOf()
         }
     }
 
     fun getPropertiesForClass(className: String): List<Property> {
-        val entries = classProperties[className] ?: emptyList()
-
-        return entries.map { it.clone().apply { origin = PropertyOrigin.Class } }
+        return (classProperties[className] ?: emptyList())
+            .map { it.clone().apply { origin = PropertyOrigin.Class } }
     }
 }

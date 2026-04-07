@@ -5,14 +5,8 @@ import li.kelp.vuetale.property.Property
 import li.kelp.vuetale.util.RenderUtil.indent
 import li.kelp.vuetale.util.RenderUtil.simpleElementRender
 import li.kelp.vuetale.validator.canHaveProperty
-import org.graalvm.polyglot.Value
 
 abstract class Element(var tag: String) {
-    @JvmField
-    var _vnode: Value = Value.asValue(null) // Placeholder for the virtual node representation
-
-    @JvmField
-    var __vue_app__: Value = Value.asValue(null) // Placeholder for the virtual node representation
 
     companion object {
         val idElementMap = mutableMapOf<String, Element>()

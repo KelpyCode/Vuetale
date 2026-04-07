@@ -1,5 +1,10 @@
 ﻿package li.kelp.vuetale.javascript
 
+import com.caoccao.javet.interop.V8Runtime
+import com.caoccao.javet.interop.converters.JavetProxyConverter
+import com.caoccao.javet.values.V8Value
+import com.caoccao.javet.values.primitive.V8ValueString
+import com.caoccao.javet.values.reference.V8ValueObject
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.property.PropertyNumber
 import li.kelp.vuetale.property.PropertyOrigin
@@ -11,160 +16,139 @@ import li.kelp.vuetale.tree.GroupElement
 import li.kelp.vuetale.util.ReflectUtil
 import li.kelp.vuetale.util.StringUtil.capitalize
 import li.kelp.vuetale.validator.*
-import org.graalvm.polyglot.Value
 import java.util.logging.Logger
 
-class VueBridge {
-    val logger = Logger.getLogger("VueBridge")
+class VueBridge(
+    private val v8Runtime: V8Runtime,
+    private val converter: JavetProxyConverter
+) {
+    val logger: Logger = Logger.getLogger("VueBridge")
 
-    // Styles
+    // ── Styles ─────────────────────────────────────────────────────────────
 
-    fun registerStyles(key: String, value: Value) {
-        StyleRegistry.registerStyle(key, value)
+    fun registerStyles(key: String, value: V8Value) {
+        StyleRegistry.registerStyle(key, value as V8ValueObject)
     }
 
-    // Renderer
+    // ── Renderer host API ──────────────────────────────────────────────────
 
     fun createElement(appId: String, tag: String): Element {
-        // logger.info("Creating element with tag '$tag' for app '$appId'")
-
         val elementClass = Element.findElementClassByTag(tag)
         if (elementClass == null) {
             logger.warning("Unknown tag '$tag', defaulting to 'group'")
             return GroupElement()
         }
-
         val el = ReflectUtil.createInstance<Element>(elementClass)
-
-        val app = AppManager.getApp(appId)
-        el.app = app
-
+        el.app = AppManager.getApp(appId)
         return el
     }
 
-    fun createText(appId: String, text: String) {
+    fun createText(appId: String, text: String) {}
 
+    fun createComment(appId: String) {}
+
+    fun setText(appId: String) {}
+
+    fun setElementText(appId: String, el: Element, text: String) {
+        el.properties["Text"] = PropertyString("Text", text)
     }
 
-    fun createComment(appId: String) {
+    fun parentNode(appId: String) {}
 
-    }
+    fun nextSibling(appId: String) {}
 
-    fun setText(appId: String) {
-
-    }
-
-    fun setElementText(appId: String, el: Value, text: String) {
-        // logger.info("Setting element text for app '$appId': $text")
-
-        val element = el.asHostObject<Element>()
-        element.properties["Text"] = PropertyString("Text", text)
-    }
-
-    fun parentNode(appId: String) {
-
-    }
-
-    fun nextSibling(appId: String) {
-
-    }
-
-    fun insert(appId: String, child: Value, parent: Value) {
-        // logger.info("Inserting child into parent for app '$appId'")
-
-        val childEl = child.asHostObject<Element>()
-        val parentEl = parent.asHostObject<Element>()
-
-        if (parentEl is ElementContainer) {
-            parentEl.appendChild(childEl)
+    fun insert(appId: String, child: Element, parent: Any?) {
+        // `parent` is either a proxied Kotlin ElementContainer or the plain JS
+        // container wrapper ({_vtContainerId, ...}) that Vue mounts on.
+        val actualParent: ElementContainer? = when {
+            parent is ElementContainer -> parent
+            parent is Map<*, *> && parent.containsKey("_vtContainerId") ->
+                AppManager.getApp(appId)?.root
+            else -> {
+                logger.warning("insert: unknown parent type ${parent?.javaClass}, ignoring")
+                null
+            }
+        }
+        if (actualParent != null) {
+            actualParent.appendChild(child)
         } else {
-            logger.warning("Parent element ${parentEl.id} is not a container, cannot append child ${childEl.id}")
+            logger.warning("insert: could not resolve parent for child ${child.id}")
         }
     }
 
-    fun remove(appId: String, element: Value) {
-        val el = element.asHostObject<Element>()
+    fun remove(appId: String, element: Element) {
         val app = AppManager.getApp(appId)
-
-        if (el.varFrom != null) {
-            app?.removeDependency(el.varFrom!!)
+        if (element.varFrom != null) {
+            app?.removeDependency(element.varFrom!!)
         }
-
-        el.remove()
+        element.remove()
     }
 
-    fun patchProp(appId: String, el: Value, key: String, prevValue: Value, nextValue: Value) {
-        // logger.info("Patching property '$key' for app '$appId': $prevValue -> $nextValue")
-
-        val element = el.asHostObject<Element>()
-
+    fun patchProp(appId: String, el: Element, key: String, prevValue: V8Value, nextValue: V8Value) {
         fun clearPropertiesWithOrigin(origin: PropertyOrigin) {
-            element.properties = element.properties.filter { it.value.origin != origin }.toMutableMap()
+            el.properties = el.properties.filter { it.value.origin != origin }.toMutableMap()
         }
 
         when (key) {
             "style" -> {
-                // Clear existing style properties
                 clearPropertiesWithOrigin(PropertyOrigin.Style)
-
-                nextValue.memberKeys.forEach {
-                    val styleKey = it.toString()
-                    val styleValue = nextValue.getMember(it).asString()
-                    element.properties["$styleKey"] = PropertyNumber(styleKey, styleValue.toInt()).apply {
-                        origin =
-                            PropertyOrigin.Style
+                if (!nextValue.isNullOrUndefined) {
+                    val nextObj = nextValue as V8ValueObject
+                    nextObj.memberKeys().forEach { styleKey ->
+                        nextObj.get<V8Value>(styleKey).use { sv ->
+                            el.properties[styleKey] = PropertyNumber(styleKey, sv.asKtInt()).apply {
+                                origin = PropertyOrigin.Style
+                            }
+                        }
                     }
                 }
             }
 
             "class" -> {
-                // Clear existing style properties
                 clearPropertiesWithOrigin(PropertyOrigin.Class)
-
-                val classes = nextValue.asString()?.split(" ") ?: emptyList()
-                classes.forEach { c ->
-                    StyleRegistry.getPropertiesForClass(c).forEach {
-                        try {
-                            element.setPropertySafe(it.name, it)
-                        } catch (e: Exception) {
-                            logger.warning("Failed to set property '${it.name}' from class '$c': ${e.message}")
+                if (!nextValue.isNullOrUndefined) {
+                    val classes = (nextValue as V8ValueString).value.split(" ")
+                    classes.forEach { c ->
+                        StyleRegistry.getPropertiesForClass(c).forEach { prop ->
+                            try {
+                                el.setPropertySafe(prop.name, prop)
+                            } catch (e: Exception) {
+                                logger.warning("Failed to set property '${prop.name}' from class '$c': ${e.message}")
+                            }
                         }
                     }
                 }
             }
 
             "id" -> {
-                element.customId = nextValue.asString()
+                if (!nextValue.isNullOrUndefined) {
+                    el.customId = nextValue.asKtString()
+                }
             }
 
             "varFrom" -> {
-                val prev = prevValue.asString()
-
+                val prev = if (prevValue.isNullOrUndefined) null else prevValue.asKtString()
                 if (prev != null) {
-                    element.app?.removeDependency(prev)
+                    el.app?.removeDependency(prev)
                 }
-
-                element.varFrom = nextValue.asString()
-
-                if (element.varFrom != null) {
-                    element.app?.addDependency(element.varFrom!!)
+                el.varFrom = if (nextValue.isNullOrUndefined) null else nextValue.asKtString()
+                if (el.varFrom != null) {
+                    el.app?.addDependency(el.varFrom!!)
                 }
             }
 
             "varName" -> {
-                element.varName = nextValue.asString()
+                el.varName = if (nextValue.isNullOrUndefined) null else nextValue.asKtString()
             }
-
 
             else -> {
                 val keyCapitalized = key.capitalize()
-                if (nextValue.isNull) {
-                    element.properties.remove(keyCapitalized)
-                    return
-                } else if (element.canHaveProperty(keyCapitalized)) {
-                    val prop = element.executeProperty(keyCapitalized, nextValue)
+                if (nextValue.isNullOrUndefined) {
+                    el.properties.remove(keyCapitalized)
+                } else if (el.canHaveProperty(keyCapitalized)) {
+                    val prop = el.executeProperty(keyCapitalized, nextValue)
                     if (prop != null) {
-                        element.properties[keyCapitalized] = prop
+                        el.properties[keyCapitalized] = prop
                     }
                 } else {
                     logger.warning("Unknown property '$keyCapitalized', ignoring")
