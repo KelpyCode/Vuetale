@@ -21,9 +21,9 @@ dependencies {
 
     // Javet – Java API
     implementation("com.caoccao.javet:javet:4.1.2")
-    // Javet – native V8 libraries (platform-specific; include both for local dev + Linux servers)
-    implementation("com.caoccao.javet:javet-v8-windows-x86_64:4.1.2")
-    implementation("com.caoccao.javet:javet-v8-linux-x86_64:4.1.2")
+    // Javet – Node.js native libraries (includes setTimeout, setInterval, process, etc.)
+    implementation("com.caoccao.javet:javet-node-windows-x86_64:4.1.2")
+    implementation("com.caoccao.javet:javet-node-linux-x86_64:4.1.2")
 }
 
 hytale {

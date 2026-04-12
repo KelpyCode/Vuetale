@@ -18,7 +18,7 @@ https://discord.gg/affkepndn7
 ## Why Vuetale?
 
 Web developers love Vue for its **intuitive reactivity**, **single-file components**, and **fantastic DX**.  
-Vuetale brings exactly that to Hytale by using a custom Vue renderer powered by **GraalVM JavaScript** and a Kotlin
+Vuetale brings exactly that to Hytale by using a custom Vue renderer powered by **Javet** and a Kotlin
 bridge.
 
 ### Key Benefits
@@ -33,7 +33,7 @@ bridge.
 ### Performance & Memory
 
 - Very performant for a modern framework approach (not quite as fast as 100% native, but more than acceptable).
-- Single shared GraalVM JS engine per server - loads Vue and all components only once.
+- Single shared Javet engine per server - loads Vue and all components only once.
 - Two lightweight Vue apps per player (`HUD` + `Page`) with negligible memory overhead.
 - All heavy lifting happens at build time.
 
@@ -46,7 +46,7 @@ bridge.
 3. The Vite build step:
     - Compiles `.vue` files to JavaScript
     - Extracts and converts CSS to optimized JSON (via PostCSS)
-4. At runtime, Vuetale’s custom Vue renderer bridges everything to Hytale’s UI system via GraalVM JS and Kotlin.
+4. At runtime, Vuetale’s custom Vue renderer bridges everything to Hytale’s UI system via Javet and Kotlin.
 
 No runtime parsing. Maximum performance. Maximum developer happiness.
 
@@ -69,7 +69,7 @@ No runtime parsing. Maximum performance. Maximum developer happiness.
 
 ### ✅ Finished
 
-- GraalVM JS integration + Vue.js loading
+- Javet integration + Vue.js loading
 - Vite build pipeline (SFC → JS + CSS → JSON)
 - Custom Vue renderer with full Kotlin bridge
 - Kotlin-side element tree with Vue support
@@ -81,7 +81,7 @@ No runtime parsing. Maximum performance. Maximum developer happiness.
 ### 🚧 In Progress / Todo
 
 - Actual rendering in Hytale (Page & HUD handling)
-- GraalVM custom filesystem support for loading from mod JARs
+- Javet custom filesystem support for loading from mod JARs
 - Vite plugin to extract `.d.ts` from other mods (for cross-mod autocompletion)
 - Better Java interop support
 - Passing JVM values into Vue apps + reactivity helpers

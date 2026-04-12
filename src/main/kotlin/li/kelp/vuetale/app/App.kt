@@ -24,12 +24,14 @@ class App(val owner: String, val type: AppType) {
 
     private fun createApp() = getEngine().evalScript("_vt.createUserApp('${getId()}');")
     private fun updateReference() {
-        getEngine().loaderCtx.invoke<V8Value>("registerUserAppRef", getId(), this).close()
+        getEngine().runOnV8Thread {
+            getEngine().loaderCtx.invoke<V8Value>("registerUserAppRef", getId(), this@App).close()
+        }
     }
 
     private fun getDependencyKey(origin: String): String {
         // Random chars
-        var random = (0..5).map { ('a'..'z').random() }.joinToString("")
+        val random = (0..5).map { ('a'..'z').random() }.joinToString("")
 
         return origin.replace(Regex("[^A-Za-z0-9]"), "") + "_" + random
     }
