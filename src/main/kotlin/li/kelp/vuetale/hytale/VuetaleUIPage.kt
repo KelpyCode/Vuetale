@@ -72,7 +72,7 @@ class VuetaleUIPage(
         app.mount()
 
         // 2. Load the static root layout (defines group #App {})
-        uiCommandBuilder.append(rootUiPath)
+        uiCommandBuilder.append("Pages/HytaleRoot.ui")
 
         // 3. Inject the entire rendered tree into #App
         uiCommandBuilder.appendInline("#App", app.root.render(0))
