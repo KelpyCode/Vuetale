@@ -1,52 +1,52 @@
 import "vue";
 import { hytaleRenderer as r } from "./renderer.js";
-import o from "./components/App.vue.js";
-import { flushPendingStyles as s, applyStyles as c } from "./styles.js";
-function f(e, t) {
+import s from "./components/App.vue.js";
+import { flushPendingStyles as a, applyStyles as c } from "./styles.js";
+function u(e, t) {
   globalThis[e] = t;
 }
-const p = /* @__PURE__ */ new Map(), n = /* @__PURE__ */ new Map();
-function a(e) {
-  const t = p.get(e);
-  t && (t.unmount(), p.delete(e), n.delete(e));
+const n = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Map();
+function l(e) {
+  const t = n.get(e);
+  t && (t.unmount(), n.delete(e), o.delete(e));
 }
-function u(e) {
-  console.log("Creating user app", e), s();
-  const t = r(e).createApp(o);
-  return t.provide("appId", e), p.set(e, t), t;
+function f(e) {
+  console.log("Creating user app", e), a();
+  const t = r(e).createApp(s);
+  return t.provide("appId", e), n.set(e, t), t;
 }
 function i(e) {
-  return p.get(e);
-}
-function l(e) {
   return n.get(e);
 }
-function R(e, t) {
-  const container = {
+function _(e) {
+  return o.get(e);
+}
+function g(e, t) {
+  const p = {
     _vnode: null,
     __vue_app__: null,
     _vtContainerId: e,
-    getRoot: function() { return t.root; }
+    getRoot: () => t.root
   };
-  n.set(e, container);
+  o.set(e, p);
 }
-f("_vt", {
+u("_vt", {
   applyStyles: c,
-  createUserApp: u,
+  createUserApp: f,
   getUserApp: i,
-  getUserAppRef: l,
-  registerUserAppRef: R,
-  removeUserApp: a,
-  USER_APPS: p,
-  USER_APPS_REF: n
+  getUserAppRef: _,
+  registerUserAppRef: g,
+  removeUserApp: l,
+  USER_APPS: n,
+  USER_APPS_REF: o
 });
 export {
-  p as USER_APPS,
-  n as USER_APPS_REF,
-  u as createUserApp,
+  n as USER_APPS,
+  o as USER_APPS_REF,
+  f as createUserApp,
   i as getUserApp,
-  l as getUserAppRef,
-  R as registerUserAppRef,
-  a as removeUserApp
+  _ as getUserAppRef,
+  g as registerUserAppRef,
+  l as removeUserApp
 };
-//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoibG9hZGVyLmpzIiwic291cmNlcyI6W10sInNvdXJjZXNDb250ZW50IjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6Ijs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7In0=
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoibG9hZGVyLmpzIiwic291cmNlcyI6W10sInNvdXJjZXNDb250ZW50IjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6Ijs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7OyJ9

@@ -4,6 +4,7 @@ import com.hypixel.hytale.server.core.plugin.JavaPlugin
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.app.AppType
+import li.kelp.vuetale.commands.TestCommand
 import li.kelp.vuetale.javascript.JSEngine
 
 class Plugin(init: JavaPluginInit) : JavaPlugin(init) {
@@ -14,12 +15,14 @@ class Plugin(init: JavaPluginInit) : JavaPlugin(init) {
     override fun setup() {
         logger.atInfo().log("Hello World!")
 
-        val app = AppManager.createApp("test", AppType.Page)
+        //val app = AppManager.createApp("test", AppType.Page)
         // JSEngine.instance is initialised lazily the first time App accesses it.
         // Capture it here so we can close it on shutdown.
-        jsEngine = JSEngine.instance
+        //jsEngine = JSEngine.instance
 
-        app.mount()
+        //app.mount()
+
+        this.getCommandRegistry().registerCommand(TestCommand())
     }
 
     override fun shutdown() {

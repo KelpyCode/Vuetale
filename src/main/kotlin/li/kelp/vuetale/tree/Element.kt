@@ -2,6 +2,8 @@
 
 import li.kelp.vuetale.app.App
 import li.kelp.vuetale.property.Property
+import li.kelp.vuetale.property.PropertyNumber
+import li.kelp.vuetale.property.PropertyRecord
 import li.kelp.vuetale.util.RenderUtil.indent
 import li.kelp.vuetale.util.RenderUtil.simpleElementRender
 import li.kelp.vuetale.validator.canHaveProperty
@@ -33,6 +35,7 @@ abstract class Element(var tag: String) {
     }
 
     fun renderProperties(depth: Int): String {
+        val properties = getPropertiesWithDefaults()
         if (properties.isEmpty()) {
             return ""
         }
@@ -54,6 +57,20 @@ abstract class Element(var tag: String) {
         } else {
             throw IllegalArgumentException("Property '$name' is not supported for element type '$tag'.")
         }
+    }
+
+    fun getPropertiesWithDefaults(): Map<String, Property> {
+        val props = properties.toMutableMap()
+
+        if (!props.containsKey("anchor")) {
+            props["anchor"] = PropertyRecord(
+                "anchor", mutableMapOf(
+                    "Full" to PropertyNumber("Full", 0)
+                )
+            )
+        }
+
+        return props
     }
 
     init {

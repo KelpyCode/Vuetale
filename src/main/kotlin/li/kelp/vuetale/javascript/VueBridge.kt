@@ -4,8 +4,10 @@ import com.caoccao.javet.interop.V8Runtime
 import com.caoccao.javet.interop.converters.JavetProxyConverter
 import com.caoccao.javet.values.V8Value
 import com.caoccao.javet.values.primitive.V8ValueString
+import com.caoccao.javet.values.reference.V8ValueFunction
 import com.caoccao.javet.values.reference.V8ValueObject
 import li.kelp.vuetale.app.AppManager
+import li.kelp.vuetale.events.VueEventMapper
 import li.kelp.vuetale.property.PropertyNumber
 import li.kelp.vuetale.property.PropertyOrigin
 import li.kelp.vuetale.property.PropertyString
@@ -71,6 +73,7 @@ class VueBridge(
         }
         if (actualParent != null) {
             actualParent.appendChild(child)
+            AppManager.getApp(appId)?.markDirty()
         } else {
             logger.warning("insert: could not resolve parent for child ${child.id}")
         }
@@ -81,7 +84,11 @@ class VueBridge(
         if (element.varFrom != null) {
             app?.removeDependency(element.varFrom!!)
         }
+        // Clean up event bindings for this element before removing it
+        val rawId = element.customId ?: element.id
+        app?.eventRegistry?.unregisterEvents(rawId)
         element.remove()
+        app?.markDirty()
     }
 
     fun patchProp(appId: String, el: Element, key: String, prevValue: V8Value, nextValue: V8Value) {
@@ -142,17 +149,38 @@ class VueBridge(
             }
 
             else -> {
-                val keyCapitalized = key.capitalize()
-                if (nextValue.isNullOrUndefined) {
-                    el.properties.remove(keyCapitalized)
-                } else if (el.canHaveProperty(keyCapitalized)) {
-                    val prop = el.executeProperty(keyCapitalized, nextValue)
-                    if (prop != null) {
-                        el.properties[keyCapitalized] = prop
+                // ── Vue event handlers (on*) ─────────────────────────────────────
+                val bindingType = VueEventMapper.map(key)
+                if (bindingType != null) {
+                    val app = el.app
+                    if (app != null) {
+                        if (nextValue.isNullOrUndefined) {
+                            app.eventRegistry.unregisterEvents(el.customId ?: el.id)
+                        } else {
+                            val fn = nextValue as? V8ValueFunction
+                            if (fn != null) {
+                                app.eventRegistry.registerEvent(el, bindingType, fn)
+                            } else {
+                                logger.warning("patchProp: expected V8ValueFunction for '$key', got ${nextValue.javaClass.simpleName}")
+                            }
+                        }
                     }
                 } else {
-                    logger.warning("Unknown property '$keyCapitalized', ignoring")
+                    // ── Regular Hytale element property ─────────────────────────
+                    val keyCapitalized = key.capitalize()
+                    if (nextValue.isNullOrUndefined) {
+                        el.properties.remove(keyCapitalized)
+                    } else if (el.canHaveProperty(keyCapitalized)) {
+                        val prop = el.executeProperty(keyCapitalized, nextValue)
+                        if (prop != null) {
+                            el.properties[keyCapitalized] = prop
+                        }
+                    } else {
+                        logger.warning("Unknown property '$keyCapitalized', ignoring")
+                    }
                 }
+                // Mark dirty for every prop mutation so incremental updates fire correctly
+                el.app?.markDirty()
             }
         }
 

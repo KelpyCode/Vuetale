@@ -1,0 +1,14 @@
+﻿// Import standard Hytale UI styles so dynamic elements can reference built-in styles
+// (buttons, scrollbars, etc.) without redefining them.
+$Common = "Common.ui";
+
+// Main container that VuetaleUIPage targets via appendInline("#App", ...).
+// Keeping this element static means clear("#App") wipes only Vue-rendered children,
+// never the page shell itself.
+Group #App {
+    // Stretch to every edge of the game window.
+    Anchor: (Full: 0);
+
+    // Absolute positioning – generated child elements handle their own placement.
+    LayoutMode: Full;
+}

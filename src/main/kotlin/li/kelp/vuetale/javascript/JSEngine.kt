@@ -9,6 +9,7 @@ import com.caoccao.javet.interop.callback.IV8ModuleResolver
 import com.caoccao.javet.values.V8Value
 import com.caoccao.javet.values.reference.IV8Module
 import com.caoccao.javet.values.reference.V8ValueObject
+import li.kelp.vuetale.app.AppManager
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -84,6 +85,42 @@ class JSEngine : AutoCloseable {
     private val moduleCache: MutableMap<String, IV8Module> = mutableMapOf()
 
     /**
+     * Maps each module's fake resource name (the flat path inside [moduleRootDir],
+     * e.g. `vuetale-modules/vuetale-core-loader.js`) back to its real classpath path.
+     *
+     * Keyed by string instead of `IV8Module` instance because Javet re-wraps the same
+     * underlying V8 handle in a new Java object every time it passes the referrer to
+     * [ClasspathModuleResolver.resolve].  Identity-based lookup would miss the entry;
+     * string lookup on `v8ModuleReferrer.resourceName` is stable.
+     */
+    private val modulePathIndex: MutableMap<String, String> = mutableMapOf()
+
+    /**
+     * Flat directory used as the parent for all compiled module resource names.
+     *
+     * Javet's [com.caoccao.javet.interop.executors.IV8Executor.setResourceName] calls
+     * `process.chdir()` to the resource name's parent directory.  If that directory does
+     * not exist the call fails and Javet logs a SEVERE.  By mapping all classpath paths to
+     * flat filenames inside this pre-created temp directory, `chdir` always succeeds and
+     * the log spam is eliminated while still giving every V8 module a unique identity string.
+     *
+     * Example: `"vuetale/core/loader.js"` becomes `"(tmpdir)/vuetale-modules/vuetale-core-loader.js"`
+     */
+    private val moduleRootDir: java.io.File by lazy {
+        java.io.File(System.getProperty("java.io.tmpdir"), "vuetale-modules")
+            .also { it.mkdirs() }
+    }
+
+    /**
+     * Convert a classpath path (e.g. `"vuetale/core/loader.js"`) to a flat absolute path
+     * inside [moduleRootDir] (e.g. `".../vuetale-modules/vuetale-core-loader.js"`).
+     * The parent is always [moduleRootDir], which is guaranteed to exist.
+     */
+    private fun makeResourceName(classpathPath: String): String =
+        java.io.File(moduleRootDir, classpathPath.replace('/', '-').replace('\\', '-'))
+            .absolutePath
+
+    /**
      * The _vt global object set by loader.js – holds createUserApp,
      * getUserApp, registerUserAppRef, etc.
      */
@@ -116,7 +153,8 @@ class JSEngine : AutoCloseable {
 
         // Wire up console -> JVM logger.
         v8Runtime.globalObject.set("ktConsole", JsConsole())
-        v8Runtime.getExecutor("""
+        v8Runtime.getExecutor(
+            """
             globalThis.console = {
                 log:   (...a) => ktConsole.log  (a.map(x => String(x)).join(' ')),
                 info:  (...a) => ktConsole.info (a.map(x => String(x)).join(' ')),
@@ -124,7 +162,8 @@ class JSEngine : AutoCloseable {
                 error: (...a) => ktConsole.error(a.map(x => String(x)).join(' ')),
                 debug: (...a) => ktConsole.debug(a.map(x => String(x)).join(' ')),
             };
-        """.trimIndent()).executeVoid()
+        """.trimIndent()
+        ).executeVoid()
 
         v8Runtime.globalObject.set("ktBridge", bridge)
 
@@ -148,6 +187,15 @@ class JSEngine : AutoCloseable {
     private fun tickInternal() {
         runCatching { v8Runtime.await(V8AwaitMode.RunOnce) }
             .onFailure { logger.warning("V8 tick error: ${it.message}") }
+
+        // After the full Vue render batch has run, notify any dirty apps exactly once.
+        AppManager.apps.values.forEach { app ->
+            if (app.isDirty) {
+                app.isDirty = false
+                runCatching { app.onDirty?.invoke() }
+                    .onFailure { logger.warning("onDirty callback error for app '${app.getId()}': ${it.message}") }
+            }
+        }
     }
 
     // ── Public API (thread-safe – dispatches to V8 thread) ────────────────
@@ -180,13 +228,20 @@ class JSEngine : AutoCloseable {
             resourceName: String,
             v8ModuleReferrer: IV8Module?
         ): IV8Module {
-            val resolvedPath = resolveModulePath(resourceName, v8ModuleReferrer?.resourceName)
+            // Look up the referrer's classpath path via the stable resource-name string.
+            // v8ModuleReferrer is re-wrapped in a new Java object on every call, so we
+            // cannot use identity (IdentityHashMap); resourceName is stable.
+            val referrerPath = v8ModuleReferrer?.resourceName?.let { modulePathIndex[it] }
+            val resolvedPath = resolveModulePath(resourceName, referrerPath)
             return moduleCache.getOrPut(resolvedPath) {
                 val source = loadClasspathText(resolvedPath)
                     ?: error("ES module not found: $resolvedPath (imported as '$resourceName')")
-                v8Runtime.getExecutor(source)
-                    .setResourceName(resolvedPath)
+                val fakeResourceName = makeResourceName(resolvedPath)
+                val module = v8Runtime.getExecutor(source)
+                    .setResourceName(fakeResourceName)
                     .compileV8Module()
+                modulePathIndex[fakeResourceName] = resolvedPath
+                module
             }
         }
     }
@@ -207,9 +262,9 @@ class JSEngine : AutoCloseable {
         val stack = mutableListOf<String>()
         for (part in raw.split("/")) {
             when (part) {
-                "", "."  -> {}
-                ".."     -> if (stack.isNotEmpty()) stack.removeLast()
-                else     -> stack.add(part)
+                "", "." -> {}
+                ".." -> if (stack.isNotEmpty()) stack.removeLast()
+                else -> stack.add(part)
             }
         }
         return stack.joinToString("/")
@@ -218,9 +273,12 @@ class JSEngine : AutoCloseable {
     private fun compileAndEvalModule(path: String): IV8Module {
         val source = loadClasspathText(path) ?: error("Module not found: $path")
         val module = moduleCache.getOrPut(path) {
-            v8Runtime.getExecutor(source)
-                .setResourceName(path)
+            val fakeResourceName = makeResourceName(path)
+            val m = v8Runtime.getExecutor(source)
+                .setResourceName(fakeResourceName)
                 .compileV8Module()
+            modulePathIndex[fakeResourceName] = path
+            m
         }
         module.instantiate()
         module.execute<V8Value>().close()
@@ -254,6 +312,7 @@ class JSEngine : AutoCloseable {
         v8Executor.submit {
             moduleCache.values.forEach { runCatching { it.close() } }
             moduleCache.clear()
+            modulePathIndex.clear()
             runCatching { if (::loaderCtx.isInitialized) loaderCtx.close() }
             runCatching { v8Runtime.globalObject.delete("ktConsole") }
             runCatching { v8Runtime.close() }
