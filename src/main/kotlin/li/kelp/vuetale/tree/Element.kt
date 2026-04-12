@@ -20,7 +20,7 @@ abstract class Element(var tag: String) {
                 val chars = ('a'..'z') + ('0'..'9')
                 id = List(12) { chars.random() }.joinToString("")
             } while (idElementMap.containsKey(id))
-            return "vt_" + id
+            return "vt" + id
         }
 
         val supportedProperties = setOf<String>()
@@ -62,9 +62,9 @@ abstract class Element(var tag: String) {
     fun getPropertiesWithDefaults(): Map<String, Property> {
         val props = properties.toMutableMap()
 
-        if (!props.containsKey("anchor")) {
-            props["anchor"] = PropertyRecord(
-                "anchor", mutableMapOf(
+        if (!props.containsKey("Anchor")) {
+            props["Anchor"] = PropertyRecord(
+                "Anchor", mutableMapOf(
                     "Full" to PropertyNumber("Full", 0)
                 )
             )

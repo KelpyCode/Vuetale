@@ -59,7 +59,8 @@ class VueBridge(
 
     fun nextSibling(appId: String) {}
 
-    fun insert(appId: String, child: Element, parent: Any?) {
+    fun insert(appId: String, child: Element?, parent: Any?) {
+        if (child == null) return // text/comment nodes return null from createText/createComment – no-op
         // `parent` is either a proxied Kotlin ElementContainer or the plain JS
         // container wrapper ({_vtContainerId, ...}) that Vue mounts on.
         val actualParent: ElementContainer? = when {
