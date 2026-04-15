@@ -61,14 +61,37 @@ class App(val owner: String, val type: AppType) {
         }
     }
 
-    private fun getDependencyKey(origin: String): String {
-        val random = (0..5).map { ('a'..'z').random() }.joinToString("")
-        return origin.replace(Regex("[^A-Za-z0-9]"), "") + "_" + random
+    /**
+     * Reset Kotlin-side state without calling V8 unmount.
+     * Used by [li.kelp.vuetale.javascript.HotReloadManager] before tearing down the engine.
+     * Does NOT touch V8 – all V8 references are considered dead at this point.
+     */
+    internal fun forceReset() {
+        isMounted = false
+        isDirty = false
+        root = RootElement().also { it.app = this }
+        // closeAll() wraps each V8 callback.close() in runCatching internally,
+        // so this is safe even when V8 is already torn down.
+        eventRegistry.closeAll()
     }
 
-    fun addDependency(origin: String) {
+    /**
+     * Re-create this app's Vue counterpart inside a freshly started [JSEngine].
+     * Must be called after [forceReset] and after the engine has been restarted.
+     */
+    internal fun reinitializeInEngine() {
+        createApp()
+        updateReference()
+    }
+
+    private fun getDependencyKey(origin: String): String {
+        val random = (0..5).map { ('a'..'z').random() }.joinToString("")
+        return origin.replace(Regex("[^A-Za-z0-9]"), "") + "VT" + random
+    }
+
+    fun addDependency(origin: String, asName: String? = null) {
         if (dependencies.get(origin) == null) {
-            val key = getDependencyKey(origin)
+            val key = asName ?: getDependencyKey(origin)
             dependencies[origin] = Dependency(origin, key, 0)
         }
         val dep = dependencies[origin]
@@ -109,5 +132,6 @@ class App(val owner: String, val type: AppType) {
         root.app = this
         createApp()
         updateReference()
+        addDependency("../Common.ui", "C")
     }
 }

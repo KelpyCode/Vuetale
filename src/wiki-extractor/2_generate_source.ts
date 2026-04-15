@@ -1,8 +1,13 @@
 import uiTypes from "./output/hytale-ui-types.json" with { type: "json" }
 import commonDefs from "./output/common-ui-definitions.json" with { type: "json" }
+import { generateVueRenderComponents } from "./3_generate_vue_components.ts"
 
 function toLowerCamelCase(str: string): string {
     return str.charAt(0).toLowerCase() + str.slice(1);
+}
+
+function toKebabCase(str: string): string {
+    return str.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
 }
 
 function generateTypeScriptTypes() {
@@ -58,6 +63,10 @@ type C<T> = DefineComponent<T, {}, {}, {}, {}, {}, {}>`)
     }
 
 
+    const propNameMaps = {
+        Style: "ElStyle"
+    }
+
     src.push("export type NATIVE = {")
 
     for (const key of Object.keys(uiTypes.elements)) {
@@ -70,6 +79,11 @@ type C<T> = DefineComponent<T, {}, {}, {}, {}, {}, {}>`)
 
             if (prop.description) {
                 code += `\n    /** ${prop.description} */`
+            }
+
+            if (prop.name in propNameMaps) {
+                code += `\n    ${toLowerCamelCase(propNameMaps[prop.name as keyof typeof propNameMaps])}?: ${propType}; // Original name: ${prop.name}`
+                continue
             }
 
             code += `\n    ${toLowerCamelCase(prop.name)}?: ${propType};`
@@ -114,6 +128,100 @@ export const Common = {`)
     Deno.writeTextFileSync("output/common.ts", src.join("\n"))
 }
 
+function generateTypeScriptTags() {
+
+    Deno.writeTextFileSync("output/tags.json", JSON.stringify(Object.keys(uiTypes.elements)))
+
+}
+
+function generateVscodeCssData() {
+    const data = {
+        "$schema": "https://unpkg.com/vscode-css-languageservice@6.2.10/docs/customData.schema.json",
+        "version": 1.1,
+        "properties": [] as any[]
+    }
+
+    const addedProperties = new Set<string>()
+
+    function addProperty(name: string, description: string, values?: Array<{ name: string }>) {
+        if (addedProperties.has(name)) {
+            return
+        }
+        addedProperties.add(name)
+
+        const property: any = {
+            name,
+            description
+        }
+        if (values) {
+            property.values = values
+        }
+
+        data.properties.push(property)
+    }
+
+    function normalizeType(type: string): string {
+        return type.trim()
+    }
+
+    function isStringUnion(type: string): boolean {
+        return type.split("/").map(normalizeType).includes("String")
+    }
+
+    function resolveType(type: string) {
+        return uiTypes.types[type as keyof typeof uiTypes.types]
+    }
+
+    function collectCssProperties(propName: string, typeName: string, description: string, prefixParts: string[] = []) {
+        const normalizedType = normalizeType(typeName)
+
+        if (isStringUnion(normalizedType)) {
+            const fullName = `h-${[...prefixParts, toKebabCase(propName)].join("-")}`
+            addProperty(fullName, description)
+
+            for (const unionPart of normalizedType.split("/").map(normalizeType)) {
+                if (unionPart === "String") {
+                    continue
+                }
+                collectCssProperties(propName, unionPart, description, prefixParts)
+            }
+            return
+        }
+
+        const listMatch = normalizedType.match(/^List<(.+)>$/)
+        if (listMatch) {
+            collectCssProperties(propName, listMatch[1], description, prefixParts)
+            return
+        }
+
+        const typeDef = resolveType(normalizedType)
+        if (Array.isArray(typeDef)) {
+            const fullName = `h-${[...prefixParts, toKebabCase(propName)].join("-")}`
+            addProperty(fullName, description, typeDef.map(v => ({ name: v })))
+            return
+        }
+
+        if (typeDef) {
+            for (const fieldName of Object.keys(typeDef)) {
+                collectCssProperties(fieldName, typeDef[fieldName as keyof typeof typeDef], description, [...prefixParts, toKebabCase(propName)])
+            }
+            return
+        }
+
+        const fullName = `h-${[...prefixParts, toKebabCase(propName)].join("-")}`
+        addProperty(fullName, description)
+    }
+
+    for (const key of Object.keys(uiTypes.elements)) {
+        const element = uiTypes.elements[key as keyof typeof uiTypes.elements]
+        for (const prop of Object.values(element.properties)) {
+            collectCssProperties(prop.name, prop.type, prop.description ?? "")
+        }
+    }
+
+    Deno.writeTextFileSync("output/vscode-css-data.json", JSON.stringify(data, null, 2))
+}
+
 function generateKotlin() {
 
 
@@ -153,11 +261,11 @@ ${declarations}
     
 class LabelElement() : Element() {
     override val elementType = "Label"
-
+ 
     companion object {
         init {
             PropertyValidator.registerProperties(LabelElement::class.java, listOf())
-
+ 
             val x: PatchStyle
         }
     }
@@ -295,5 +403,8 @@ function generateKotlinSchemas() {
 
 generateTypeScriptTypes()
 generateTypeScriptCommonPrefabs()
+generateTypeScriptTags()
 generateKotlin()
 generateKotlinSchemas()
+generateVscodeCssData()
+await generateVueRenderComponents()

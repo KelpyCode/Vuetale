@@ -8,6 +8,7 @@ import com.caoccao.javet.values.reference.V8ValueFunction
 import com.caoccao.javet.values.reference.V8ValueObject
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.events.VueEventMapper
+import li.kelp.vuetale.property.PropertyNameMap
 import li.kelp.vuetale.property.PropertyNumber
 import li.kelp.vuetale.property.PropertyOrigin
 import li.kelp.vuetale.property.PropertyString
@@ -67,6 +68,7 @@ class VueBridge(
             parent is ElementContainer -> parent
             parent is Map<*, *> && parent.containsKey("_vtContainerId") ->
                 AppManager.getApp(appId)?.root
+
             else -> {
                 logger.warning("insert: unknown parent type ${parent?.javaClass}, ignoring")
                 null
@@ -168,7 +170,12 @@ class VueBridge(
                     }
                 } else {
                     // ── Regular Hytale element property ─────────────────────────
-                    val keyCapitalized = key.capitalize()
+                    var keyCapitalized = key.capitalize()
+
+                    if (PropertyNameMap.containsKey(keyCapitalized)) {
+                        keyCapitalized = PropertyNameMap[keyCapitalized]!!
+                    }
+
                     if (nextValue.isNullOrUndefined) {
                         el.properties.remove(keyCapitalized)
                     } else if (el.canHaveProperty(keyCapitalized)) {

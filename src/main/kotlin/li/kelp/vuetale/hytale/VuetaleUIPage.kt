@@ -72,25 +72,26 @@ class VuetaleUIPage(
         app.mount()
 
         // 2. Load the static root layout (defines group #App {})
+        uiCommandBuilder.append("Common.ui")
         uiCommandBuilder.append("Pages/HytaleRoot.ui")
 
         // 3. Inject the entire rendered tree into #App
-        val rendered = app.root.render(0).replace("\n", "")  // strip newlines to avoid Hytale parser issues
+        val rendered = app.root.render(0) // strip newlines to avoid Hytale parser issues
         uiCommandBuilder.appendInline("#App", rendered)
 
         // 4. Register all Vue event bindings collected during mount
-        //registerEventBindings(uiEventBuilder)
+        registerEventBindings(uiEventBuilder)
 
         // 5. Wire up the dirty → incremental-update pipeline.
         //    This lambda runs on the vuetale-v8 thread; wrap with world.execute{} if needed.
-        /*app.onDirty = {
+        app.onDirty = {
             val cmdBuilder = UICommandBuilder()
                 .clear("#App")
                 .appendInline("#App", app.root.render(0))
             val evtBuilder = UIEventBuilder()
             registerEventBindings(evtBuilder)
             sendUpdate(cmdBuilder, evtBuilder, false)
-        }*/
+        }
     }
 
     /**

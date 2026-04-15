@@ -15,6 +15,14 @@ enum class PropertyOrigin {
     Attribute
 }
 
+/**
+ * Maps Vue property names to Hytale property names. This is necessary because of the existing HTML stlye attribute,
+ * but elements can also have a style property, so we need to differentiate between them.
+ */
+val PropertyNameMap = mapOf(
+    "ElStyle" to "Style"
+)
+
 abstract class Property(var name: String, var origin: PropertyOrigin = PropertyOrigin.Default) {
     var varRef: String? = null
     var parent: PropertyRecord? = null

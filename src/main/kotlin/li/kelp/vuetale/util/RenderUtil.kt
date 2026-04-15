@@ -13,7 +13,7 @@ object RenderUtil {
         var render = ""
 
         app.dependencies.forEach {
-            render += "\$${it.value.name}: \"${it.value.origin}\";\n"
+            render += "\$${it.value.name} = \"${it.value.origin}\";\n"
         }
 
         return render

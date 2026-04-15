@@ -1,4 +1,4 @@
-﻿$Common = "Common.ui";
+﻿$C = "../Common.ui";
 
 Group #App {
     Anchor: (Full: 0);

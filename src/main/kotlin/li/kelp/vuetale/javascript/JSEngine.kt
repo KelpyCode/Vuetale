@@ -15,6 +15,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.logging.Logger
 
 /**
@@ -34,8 +35,35 @@ import java.util.logging.Logger
 class JSEngine : AutoCloseable {
 
     companion object {
-        val instance: JSEngine by lazy { JSEngine() }
+        @Volatile
+        private var _instance: JSEngine? = null
+        private val instanceLock = Any()
+
+        val instance: JSEngine
+            get() = _instance ?: synchronized(instanceLock) {
+                _instance ?: JSEngine().also { _instance = it }
+            }
+
+        /**
+         * Close the current [JSEngine] and create a fresh one.
+         * Called by [HotReloadManager] during a hot reload cycle.
+         * Thread-safe; blocks until the new engine is fully initialized.
+         */
+        fun restart(): JSEngine = synchronized(instanceLock) {
+            _instance?.close()
+            JSEngine().also { _instance = it }
+        }
+
         private val logger: Logger = Logger.getLogger("JSEngine")
+
+        /**
+         * Monotonically-increasing counter incremented on every [JSEngine] instantiation.
+         * Included in every module resource name so that V8 never confuses a module compiled
+         * in generation N with one from generation N+1, even if their classpath paths are
+         * identical.  This is the primary defence against any process-level module compilation
+         * cache that Javet/Node.js may maintain between [V8Runtime] instances.
+         */
+        private val engineGeneration = AtomicInteger(0)
 
         private val DOM_MOCK = """
             if (typeof document === 'undefined') {
@@ -112,12 +140,27 @@ class JSEngine : AutoCloseable {
     }
 
     /**
+     * This engine's generation number – stamped into every module resource name so that
+     * V8 never reuses a compiled module from a previous [JSEngine] instance, regardless of
+     * whether Javet maintains any process-level module cache between [V8Runtime] restarts.
+     */
+    private val generation: Int = engineGeneration.incrementAndGet()
+
+    /**
+     * Per-instance counter for partial hot-reloads.  Each [reloadModule] call gets a
+     * unique suffix so the reloaded module's resource name is different from both the
+     * original module AND every previous reload of the same file.
+     */
+    private val reloadSeq = AtomicInteger(0)
+
+    /**
      * Convert a classpath path (e.g. `"vuetale/core/loader.js"`) to a flat absolute path
-     * inside [moduleRootDir] (e.g. `".../vuetale-modules/vuetale-core-loader.js"`).
+     * inside [moduleRootDir] (e.g. `".../vuetale-modules/g1-vuetale-core-loader.js"`).
+     * The `g<generation>` prefix ensures cross-restart uniqueness.
      * The parent is always [moduleRootDir], which is guaranteed to exist.
      */
     private fun makeResourceName(classpathPath: String): String =
-        java.io.File(moduleRootDir, classpathPath.replace('/', '-').replace('\\', '-'))
+        java.io.File(moduleRootDir, "g${generation}-" + classpathPath.replace('/', '-').replace('\\', '-'))
             .absolutePath
 
     /**
@@ -139,6 +182,9 @@ class JSEngine : AutoCloseable {
 
         // 2. Start the Node.js event-loop pump: every 50 ms (~20 Hz).
         tickFuture = v8Executor.scheduleAtFixedRate(::tickInternal, 50, 50, TimeUnit.MILLISECONDS)
+
+        // 3. Start the hot-reload file watcher (no-op outside dev mode).
+        HotReloadManager.startIfNeeded()
 
         logger.info("JSEngine initialized – Node.js event loop running at ~20 Hz on thread 'vuetale-v8'")
     }
@@ -167,9 +213,11 @@ class JSEngine : AutoCloseable {
 
         v8Runtime.globalObject.set("ktBridge", bridge)
 
-        // Load Vue as a plain IIFE script -> sets globalThis.Vue
-        val vueIife = loadClasspathText("vue.js")
-            ?: error("vue.js not found on classpath")
+        // Load Vue as a plain IIFE script -> sets globalThis.Vue.
+        // In dev mode with useDevVue=true, prefer vue.dev.js (full warnings + __VUE_HMR_RUNTIME__).
+        val vueIife = (if (DevConfig.useDevVue) loadSourceText("vue.dev.js") else null)
+            ?: loadSourceText("vue.js")
+            ?: error("vue.js not found on classpath or filesystem")
         v8Runtime.getExecutor(vueIife).executeVoid()
         v8Runtime.getExecutor("if (typeof Vue !== 'undefined') globalThis.Vue = Vue;").executeVoid()
 
@@ -178,6 +226,12 @@ class JSEngine : AutoCloseable {
 
         // Load loader.js as an ES module; it sets globalThis._vt.
         compileAndEvalModule("vuetale/core/loader.js")
+
+        // In dev mode, load the optional debug helper module.
+        if (DevConfig.isDevMode) {
+            runCatching { compileAndEvalModule("vuetale/core/debug.js") }
+                .onFailure { logger.info("debug.js not found, skipping: ${it.message}") }
+        }
 
         loaderCtx = v8Runtime.globalObject.get("_vt")
             ?: error("globalThis._vt was not set after loading loader.js")
@@ -234,7 +288,7 @@ class JSEngine : AutoCloseable {
             val referrerPath = v8ModuleReferrer?.resourceName?.let { modulePathIndex[it] }
             val resolvedPath = resolveModulePath(resourceName, referrerPath)
             return moduleCache.getOrPut(resolvedPath) {
-                val source = loadClasspathText(resolvedPath)
+                val source = loadSourceText(resolvedPath)
                     ?: error("ES module not found: $resolvedPath (imported as '$resourceName')")
                 val fakeResourceName = makeResourceName(resolvedPath)
                 val module = v8Runtime.getExecutor(source)
@@ -271,7 +325,7 @@ class JSEngine : AutoCloseable {
     }
 
     private fun compileAndEvalModule(path: String): IV8Module {
-        val source = loadClasspathText(path) ?: error("Module not found: $path")
+        val source = loadSourceText(path) ?: error("Module not found: $path")
         val module = moduleCache.getOrPut(path) {
             val fakeResourceName = makeResourceName(path)
             val m = v8Runtime.getExecutor(source)
@@ -283,6 +337,22 @@ class JSEngine : AutoCloseable {
         module.instantiate()
         module.execute<V8Value>().close()
         return module
+    }
+
+    /**
+     * Load JS source for [path].
+     * In dev mode, the filesystem (`DevConfig.devResourcesPath / path`) is checked first
+     * so that Vite's watch-mode output is picked up without a Gradle build.
+     * Falls back to the classpath (JAR resources) when the file is not found on disk.
+     */
+    private fun loadSourceText(path: String): String? {
+        if (DevConfig.isDevMode) {
+            val fsFile = DevConfig.devResourcesPath!!.resolve(path).toFile()
+            if (fsFile.exists()) {
+                return fsFile.readText(Charsets.UTF_8)
+            }
+        }
+        return loadClasspathText(path)
     }
 
     private fun loadClasspathText(path: String): String? {
@@ -303,6 +373,79 @@ class JSEngine : AutoCloseable {
     }
 
     // ── Shutdown ───────────────────────────────────────────────────────────
+
+    /**
+     * Hot-reload a single compiled module **without** restarting the entire engine.
+     *
+     * The module source is re-read fresh from the filesystem (or classpath) and compiled
+     * under a unique, per-reload resource name so V8 treats it as a brand-new module rather
+     * than looking it up in its identity cache.  When the module executes, the HMR snippet
+     * injected by [HmrIdsPlugin] automatically calls:
+     * ```
+     * __VUE_HMR_RUNTIME__.createRecord / reload(hmrId, newComp)
+     * ```
+     * which makes Vue update all live component instances in-place – no unmount/remount needed.
+     *
+     * **Requires** the Vue dev IIFE (`vue.dev.js`) to be loaded, which sets the global
+     * `__VUE_HMR_RUNTIME__`.  When using the production build, this method returns `false`
+     * and [HotReloadManager] falls back to a full engine restart.
+     *
+     * Must be called from **outside** the V8 thread – it dispatches internally via
+     * [runOnV8Thread].
+     *
+     * @param classpathPath  Classpath-relative path of the changed file,
+     *                       e.g. `"vuetale/core/components/Test.vue.js"`.
+     * @return `true` if the partial HMR was applied successfully, `false` if the caller
+     *         should fall back to a full engine restart.
+     */
+    fun reloadModule(classpathPath: String): Boolean = runOnV8Thread {
+        try {
+            // Partial HMR only works when Vue's dev build exposes __VUE_HMR_RUNTIME__
+            val hasHmrRuntime = v8Runtime.getExecutor(
+                "typeof __VUE_HMR_RUNTIME__ !== 'undefined'"
+            ).executeBoolean()
+            if (!hasHmrRuntime) {
+                logger.info("Partial HMR skipped – __VUE_HMR_RUNTIME__ not available (load vue.dev.js for partial HMR)")
+                return@runOnV8Thread false
+            }
+
+            val source = loadSourceText(classpathPath)
+                ?: run {
+                    logger.warning("Partial HMR: source not found for $classpathPath")
+                    return@runOnV8Thread false
+                }
+
+            // Give this reload its own unique resource name so V8 never confuses it with the
+            // original or with any previous reload of the same file.
+            val reloadId = reloadSeq.incrementAndGet()
+            val reloadResName = makeResourceName(classpathPath)
+                .removeSuffix(".js") + "_vtR${reloadId}.js"
+
+            // Register the mapping so relative imports from within this module resolve correctly
+            modulePathIndex[reloadResName] = classpathPath
+
+            val mod = v8Runtime.getExecutor(source)
+                .setResourceName(reloadResName)
+                .compileV8Module()
+
+            mod.instantiate()
+            mod.execute<V8Value?>()?.close()
+
+            // Flush Vue's async scheduler so queued component updates run immediately
+            runCatching { v8Runtime.await(V8AwaitMode.RunNoWait) }
+
+            // Mark all mounted apps dirty → onDirty fires on the next tick → sendUpdate()
+            AppManager.apps.values.forEach { app ->
+                if (app.isMounted) app.isDirty = true
+            }
+
+            logger.info("Partial HMR applied: $classpathPath (reload #$reloadId)")
+            true
+        } catch (e: Exception) {
+            logger.warning("Partial HMR failed for $classpathPath: ${e.message}")
+            false
+        }
+    }
 
     override fun close() {
         // Stop the periodic tick first (let the current invocation finish).

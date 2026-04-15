@@ -5,6 +5,7 @@ import {
   parseTypePage,
 } from "./0_extract_wiki.ts";
 import { buildUiExtractionResult, parseTopLevelDefinitions } from "./1_extract_ui.ts";
+import { generateVueRenderComponents } from "./3_generate_vue_components.ts";
 
 Deno.test("parseElementPage extracts properties and callbacks", () => {
   const html = `
@@ -175,4 +176,73 @@ Deno.test("buildUiExtractionResult splits element definitions and vars", () => {
     "DefaultButtonDefaultBackground",
     "DefaultButtonStyle",
   ]);
+});
+
+Deno.test("generateVueRenderComponents creates static render component files", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const inputDir = `${tempDir}/input`;
+  const outputDir = `${tempDir}/generated`;
+  await Deno.mkdir(inputDir, { recursive: true });
+
+  await Deno.writeTextFile(`${inputDir}/Sounds.ui`, `@ButtonsLight = (MouseHover: (SoundPath: "Hover.ogg"));\n`);
+
+  await Deno.writeTextFile(
+    `${inputDir}/Common.ui`,
+    `$Sounds = "Sounds.ui";
+
+@DefaultInputFieldStyle = InputFieldStyle();
+@DefaultInputFieldPlaceholderStyle = InputFieldStyle(TextColor: #6e7da1);
+@InputBoxBackground = PatchStyle(TexturePath: "Common/InputBox.png", Border: 16);
+
+@NumberField = NumberField {
+  @Anchor = ();
+  Style: @DefaultInputFieldStyle;
+  PlaceholderStyle: @DefaultInputFieldPlaceholderStyle;
+  Background: @InputBoxBackground;
+  Anchor: (...@Anchor, Height: 38);
+  Padding: (Horizontal: 10);
+};
+
+@Container = Group {
+  @CloseButton = false;
+
+  Group #Title { }
+
+  Button #CloseButton {
+    Visible: @CloseButton;
+  }
+};
+`,
+  );
+
+  await generateVueRenderComponents({
+    inputPath: `${inputDir}/Common.ui`,
+    outputDir,
+  });
+
+  const common = await Deno.readTextFile(`${outputDir}/Common.ts`);
+
+  if (!common.includes("export const Common = {")) {
+    throw new Error("Expected Common.ts to export a Common object");
+  }
+
+  if (!common.includes("NumberField,")) {
+    throw new Error("Expected NumberField to be exported from Common object");
+  }
+
+  if (!common.includes('"placeholderStyle": { "TextColor": "#6e7da1" }')) {
+    throw new Error("Expected static placeholder style in Common.ts");
+  }
+
+  if (!common.includes("slots.title")) {
+    throw new Error("Expected title slot fallback output in Common.ts");
+  }
+
+  if (!common.includes("props.closeButton")) {
+    throw new Error("Expected closeButton local var to become a prop reference");
+  }
+
+  if (!common.includes("type: Boolean")) {
+    throw new Error("Expected closeButton prop to be typed as Boolean");
+  }
 });
