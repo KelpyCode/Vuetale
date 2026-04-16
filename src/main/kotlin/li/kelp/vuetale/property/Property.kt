@@ -24,7 +24,6 @@ val PropertyNameMap = mapOf(
 )
 
 abstract class Property(var name: String, var origin: PropertyOrigin = PropertyOrigin.Default) {
-    var varRef: String? = null
     var parent: PropertyRecord? = null
 
     open fun isValid(): Boolean {
@@ -50,6 +49,7 @@ abstract class Property(var name: String, var origin: PropertyOrigin = PropertyO
     open fun clone(): Property {
         return when (this) {
             is PropertyString -> PropertyString(name, value)
+            is PropertyColor -> PropertyColor(name, value)
             is PropertyNumber -> PropertyNumber(name, value)
             is PropertyBoolean -> PropertyBoolean(name, value)
             is PropertyEnum -> PropertyEnum(name, value)

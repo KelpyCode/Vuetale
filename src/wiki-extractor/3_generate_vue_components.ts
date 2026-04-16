@@ -602,6 +602,13 @@ function toLowerCamelCase(str: string): string {
   return str.charAt(0).toLowerCase() + str.slice(1);
 }
 
+function toGeneratedPropKey(name: string): string {
+  if (name === "Style") {
+    return "elStyle";
+  }
+  return toLowerCamelCase(name);
+}
+
 function resolveFilePath(currentPath: string, relativeImport: string): string {
   const currentDir = currentPath.replace(/[\\/][^\\/]+$/, "");
   const joined = `${currentDir}/${relativeImport}`.replace(/\\/g, "/");
@@ -831,7 +838,7 @@ async function resolveElementNode(
 
     if (item.kind === "field") {
       const resolved = await graph.resolveNode(item.value, ctx);
-      props[toLowerCamelCase(item.name)] = evaluateValue(resolved, propsMap);
+      props[toGeneratedPropKey(item.name)] = evaluateValue(resolved, propsMap);
       continue;
     }
 
@@ -839,7 +846,7 @@ async function resolveElementNode(
       const selectorObj: Record<string, unknown> = {};
       for (const field of item.fields) {
         const resolved = await graph.resolveNode(field.value, ctx);
-        selectorObj[toLowerCamelCase(field.name)] = evaluateValue(resolved, propsMap);
+        selectorObj[toGeneratedPropKey(field.name)] = evaluateValue(resolved, propsMap);
       }
       const key = toLowerCamelCase(item.selector);
       const current = (props.selectors as Record<string, unknown> | undefined) ?? {};
@@ -898,32 +905,48 @@ function formatJsValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function renderNodeToTs(node: RenderNode, indent: string): string {
+function renderNodeToTs(node: RenderNode, indent: string, isRoot = false): string {
   const propsObj: Record<string, unknown> = { ...node.props };
   if (node.id) {
     propsObj.id = node.id;
   }
 
-  const propsCode = formatJsValue(propsObj);
+  const rawPropsCode = formatJsValue(propsObj);
+  const propsCode = isRoot ? `{ ...nativeProps, ...${rawPropsCode} }` : rawPropsCode;
   const childrenExpr: string[] = [];
 
   for (const child of node.children) {
     const slot = child.id ? SLOT_ID_MAP[child.id] : undefined;
     if (slot) {
-      const fallback = renderNodeToTs(child, `${indent}  `);
-      childrenExpr.push(`...(slots.${slot} ? slots.${slot}() : [${fallback}])`);
+      const wrapperPropsObj: Record<string, unknown> = { ...child.props };
+      if (child.id) wrapperPropsObj.id = child.id;
+      const wrapperPropsCode = formatJsValue(wrapperPropsObj);
+      const originalChildren = child.children.map(c => renderNodeToTs(c, `${indent}    `, false));
+      const fallbackExpr = originalChildren.length > 0 ? `[${originalChildren.join(`, `)}]` : `[]`;
+      childrenExpr.push(`h(${JSON.stringify(child.type)}, ${wrapperPropsCode}, slots.${slot} ? slots.${slot}() : ${fallbackExpr})`);
     } else {
-      childrenExpr.push(renderNodeToTs(child, `${indent}  `));
+      childrenExpr.push(renderNodeToTs(child, `${indent}  `, false));
     }
   }
 
-  const componentExpr = `resolveComponent(${JSON.stringify(node.type)})`;
+  const componentExpr = JSON.stringify(node.type);
 
   if (childrenExpr.length === 0) {
     return `h(${componentExpr}, ${propsCode})`;
   }
 
   return `h(${componentExpr}, ${propsCode}, [\n${indent}  ${childrenExpr.join(`,\n${indent}  `)}\n${indent}])`;
+}
+
+function collectSlotNames(node: RenderNode, out = new Set<string>()): Set<string> {
+  for (const child of node.children) {
+    const slot = child.id ? SLOT_ID_MAP[child.id] : undefined;
+    if (slot) {
+      out.add(slot);
+    }
+    collectSlotNames(child, out);
+  }
+  return out;
 }
 
 function toPascalSafe(name: string): string {
@@ -1096,16 +1119,18 @@ export async function generateVueRenderComponents(options?: {
     // Resolve element with local vars excluded from scope (they are now props)
     const resolved = await resolveElementNode(graph, element, inputPath, undefined, propVarNames);
 
-    // Build per-prop declarations and interface fields
+    // Build per-prop runtime declarations + TS type fields
     let needsPropType = false;
     const propDeclParts: string[] = [];
-    const interfaceFields: string[] = [];
+    const customPropTypeFields: string[] = [];
+    const customPropNames: string[] = [];
 
     for (const [varName, propName] of Object.entries(resolved.propsMap)) {
       const pd = localVarPropDefs.get(varName);
+      customPropNames.push(propName);
       if (pd) {
         const { tsType, defaultExpr } = pd;
-        interfaceFields.push(`  ${propName}?: ${tsType};`);
+        customPropTypeFields.push(`  ${propName}?: ${tsType};`);
         if (tsType === "boolean") {
           propDeclParts.push(`    ${propName}: {\n      type: Boolean,\n      default: ${defaultExpr},\n    }`);
         } else if (tsType === "number") {
@@ -1117,7 +1142,7 @@ export async function generateVueRenderComponents(options?: {
           propDeclParts.push(`    ${propName}: {\n      type: Object as PropType<${tsType}>,\n      default: () => (${defaultExpr}),\n    }`);
         }
       } else {
-        interfaceFields.push(`  ${propName}?: unknown;`);
+        customPropTypeFields.push(`  ${propName}?: unknown;`);
         propDeclParts.push(`    ${propName}: { type: null, required: false }`);
       }
     }
@@ -1126,34 +1151,48 @@ export async function generateVueRenderComponents(options?: {
       needsPropTypeImport = true;
     }
 
-    const interfaceName = `${componentName}Props`;
-    const interfaceSection = interfaceFields.length > 0
-      ? `interface ${interfaceName} {\n${interfaceFields.join("\n")}\n}\n\n`
+    const propDecl = propDeclParts.join(",\n");
+    const renderBody = renderNodeToTs(resolved.node, "      ", true);
+    const baseElementName = resolved.node.type;
+
+    const customPropsTypeName = `${componentName}CustomProps`;
+    const propsTypeName = `${componentName}Props`;
+    const slotsTypeName = `${componentName}Slots`;
+
+    const customPropsTypeBody = customPropTypeFields.length > 0
+      ? customPropTypeFields.join("\n")
       : "";
 
-    const propDecl = propDeclParts.join(",\n");
-    const renderBody = renderNodeToTs(resolved.node, "      ");
+    const slotNames = Array.from(collectSlotNames(resolved.node)).sort();
+    const slotsTypeBody = slotNames.length > 0
+      ? slotNames.map((slotName) => `  ${slotName}?: () => VNode[];`).join("\n")
+      : "";
 
-    const componentCode = `${interfaceSection}const ${componentName} = defineComponent({
+    const nativePropsInit = customPropNames.length > 0
+      ? `const { ${customPropNames.join(", ")}, ...nativeProps } = props as ${propsTypeName} & Record<string, unknown>;`
+      : `const nativeProps = props as ${propsTypeName} & Record<string, unknown>;`;
+
+    const componentCode = `type ${customPropsTypeName} = {\n${customPropsTypeBody}\n};
+type ${propsTypeName} = ${customPropsTypeName} & Partial<NATIVE[${JSON.stringify(baseElementName)}]>;
+type ${slotsTypeName} = {\n${slotsTypeBody}\n};
+
+const ${componentName} = defineComponent({
   name: ${JSON.stringify(componentName)},
+  slots: Object as SlotsType<${slotsTypeName}>,
   props: {\n${propDecl}\n  },
   setup(props, { slots }) {
+    ${nativePropsInit}
     return () => ${renderBody};
   },
-});
+}) as C<${propsTypeName}, ${slotsTypeName}>;
 `;
 
     componentNames.push(componentName);
     componentModules.push(componentCode);
   }
 
-  const vueImports = ["defineComponent", "h", "resolveComponent"];
-  if (needsPropTypeImport) {
-    vueImports.push("PropType");
-  }
-
   const commonEntries = componentNames.join(",\n  ");
-  const moduleCode = `import { ${vueImports.join(", ")} } from "vue";\n\n${componentModules.join("\n")}\nexport const Common = {\n  ${commonEntries}\n};\n`;
+  const moduleCode = `/* eslint-disable vue/no-reserved-component-names */\n/* eslint-disable @typescript-eslint/no-empty-object-type */\n/* eslint-disable @typescript-eslint/no-unused-vars */\n/* eslint-disable vue/multi-word-component-names */\nimport type { NATIVE } from "@/types/global";\nimport { defineComponent, h, resolveComponent, type PropType } from "vue";\nimport type { DefineComponent, PublicProps, SlotsType, VNode } from "vue";\n\ntype C<P, S extends Record<string, (...args: any[]) => VNode[]> = Record<never, never>> = DefineComponent<P, {}, {}, {}, {}, {}, {}, {}, string, PublicProps, Readonly<P>, {}, SlotsType<S>>;\n\n${componentModules.join("\n")}\nexport const Common = {\n  ${commonEntries}\n};\n`;
 
   await Deno.writeTextFile(`${outputDir}/Common.ts`, moduleCode);
 }

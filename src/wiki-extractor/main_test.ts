@@ -245,4 +245,40 @@ Deno.test("generateVueRenderComponents creates static render component files", a
   if (!common.includes("type: Boolean")) {
     throw new Error("Expected closeButton prop to be typed as Boolean");
   }
+
+  if (!common.includes('type ContainerProps = ContainerCustomProps & Partial<NATIVE["Group"]>;')) {
+    throw new Error("Expected Container props to extend base NATIVE Group props");
+  }
+
+  if (!common.includes("slots: Object as SlotsType<ContainerSlots>")) {
+    throw new Error("Expected typed slots declaration for Container");
+  }
+
+  if (!common.includes("title?: () => VNode[];")) {
+    throw new Error("Expected typed title slot in ContainerSlots");
+  }
+
+  if (!common.includes("}) as C<ContainerProps, ContainerSlots>;")) {
+    throw new Error("Expected component cast to include both props and slots generics");
+  }
+
+  if (!common.includes('import type { NATIVE } from "@/types/global"')) {
+    throw new Error("Expected NATIVE import from @/types/global alias");
+  }
+
+  if (!common.includes("import { defineComponent, h, resolveComponent, type PropType } from \"vue\"")) {
+    throw new Error("Expected PropType to be imported as inline type");
+  }
+
+  if (!common.includes("slots.title ? slots.title() : []")) {
+    throw new Error("Expected slot-wraps-wrapper pattern (wrapper element always renders)");
+  }
+
+  if (common.includes("resolveComponent(")) {
+    throw new Error("Expected generated render output to use string tags instead of resolveComponent");
+  }
+
+  if (!common.includes('h("Group",')) {
+    throw new Error("Expected generated render output to use string tag calls in h()");
+  }
 });

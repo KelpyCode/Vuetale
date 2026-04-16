@@ -17,6 +17,7 @@ import com.caoccao.javet.values.V8Value
 import com.caoccao.javet.values.primitive.V8ValueString
 import com.caoccao.javet.values.reference.V8ValueArray
 import com.caoccao.javet.values.reference.V8ValueObject
+import li.kelp.vuetale.property.PropertyColor
 
 
 enum class PropertyType {
@@ -82,7 +83,11 @@ class Schema {
         return execute(declaration, property, value)
     }
 
-    private fun executeInterface(declaration: SchemaInterfaceDeclaration, propertyName: String, value: V8Value): PropertyRecord {
+    private fun executeInterface(
+        declaration: SchemaInterfaceDeclaration,
+        propertyName: String,
+        value: V8Value
+    ): PropertyRecord {
         val map = mutableMapOf<String, Property>()
         val obj = value as V8ValueObject
         for (subField in declaration.fields) {
@@ -112,22 +117,23 @@ class Schema {
 
             else -> {
                 val field = when (declaration) {
-                    is SchemaElementDeclaration   -> declaration.fields.find { it.name == property }
+                    is SchemaElementDeclaration -> declaration.fields.find { it.name == property }
                     is SchemaInterfaceDeclaration -> declaration.fields.find { it.name == property }
-                    else                          -> null
+                    else -> null
                 }
 
                 return when (field?.type) {
-                    PropertyType.ColorString -> PropertyString(property, value.asKtString())
-                    PropertyType.Record      -> PropertyRecord(property, mutableMapOf())
-                    PropertyType.String      -> PropertyString(property, value.asKtString())
-                    PropertyType.Number      -> PropertyNumber(property, value.asKtInt())
-                    PropertyType.Boolean     -> PropertyBoolean(property, value.asKtBoolean())
+                    PropertyType.ColorString -> PropertyColor(property, value.asKtString())
+                    PropertyType.Record -> PropertyRecord(property, mutableMapOf())
+                    PropertyType.String -> PropertyString(property, value.asKtString())
+                    PropertyType.Number -> PropertyNumber(property, value.asKtInt())
+                    PropertyType.Boolean -> PropertyBoolean(property, value.asKtBoolean())
                     PropertyType.Ref -> {
                         val ref = field.ref!!
                         if (enums[ref] != null) execute(enums[ref]!!, property, value)
                         else executeInterface(interfaces[ref]!!, property, value)
                     }
+
                     PropertyType.RefArray -> {
                         val ref = field.ref!!
                         val array = value as V8ValueArray
@@ -138,11 +144,13 @@ class Schema {
                         }.toMutableList<Property>()
                         PropertyArray(property, list)
                     }
+
                     PropertyType.RefOrString -> {
                         val ref = field.ref!!
                         if (value is V8ValueString) PropertyString(property, value.value)
                         else executeInterface(interfaces[ref]!!, property, value)
                     }
+
                     else -> throw IllegalArgumentException(
                         "Unsupported property type: ${field?.type} (property '$property' in '${declaration::class.simpleName}')"
                     )

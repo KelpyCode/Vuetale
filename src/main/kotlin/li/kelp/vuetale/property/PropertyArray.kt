@@ -2,8 +2,6 @@
 
 class PropertyArray(name: String, var list: MutableList<Property> = mutableListOf()) : Property(name) {
     override fun render(): String? {
-        if (this.varRef != null) return renderAsVariable()
-
         if (list.isEmpty()) {
             return null
         }

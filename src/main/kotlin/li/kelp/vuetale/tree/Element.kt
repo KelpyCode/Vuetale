@@ -39,7 +39,9 @@ abstract class Element(var tag: String) {
         if (properties.isEmpty()) {
             return ""
         }
-        return properties.mapNotNull { indent(depth) + it.value.render() }.joinToString(";\n") + ";\n"
+        return properties.values
+            .mapNotNull { prop -> prop.render()?.let { indent(depth) + it } }
+            .joinToString(";\n") + ";\n"
     }
 
     val id: String

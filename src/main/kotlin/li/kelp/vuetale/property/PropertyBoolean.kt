@@ -2,13 +2,11 @@
 
 class PropertyBoolean(name: String, var value: Boolean?) : Property(name) {
     override fun render(): String? {
-        if (this.varRef != null) return renderAsVariable()
-
         if (value == null) {
             return null
         }
 
-        val valueString = if (value == true) "True" else "False"
+        val valueString = if (value == true) "true" else "false"
 
         return "$name: $valueString"
     }

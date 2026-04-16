@@ -1,0 +1,67 @@
+export declare const Core: {
+    TextField: import('vue').DefineComponent<{
+        anchor?: import('../types/global').Anchor;
+        autoFocus?: boolean;
+        autoScrollDown?: boolean;
+        autoSelectAll?: boolean;
+        background?: import('../types/global').PatchStyle | string;
+        contentHeight?: number;
+        contentWidth?: number;
+        decoration?: import('../types/global').InputFieldDecorationStyle;
+        flexWeight?: number;
+        hitTestVisible?: boolean;
+        isReadOnly?: boolean;
+        keepScrollPosition?: boolean;
+        maskTexturePath?: string;
+        maxLength?: number;
+        mouseWheelScrollBehaviour?: import('../types/global').MouseWheelScrollBehaviourType;
+        outlineColor?: string;
+        outlineSize?: number;
+        overscroll?: boolean;
+        padding?: import('../types/global').Padding;
+        passwordChar?: string;
+        placeholderStyle?: import('../types/global').InputFieldStyle;
+        placeholderText?: string;
+        elStyle?: import('../types/global').InputFieldStyle;
+        textTooltipShowDelay?: number;
+        textTooltipStyle?: import('../types/global').TextTooltipStyle;
+        tooltipText?: string;
+        tooltipTextSpans?: Array<import('../types/global').LabelSpan>;
+        value?: string;
+        visible?: boolean;
+    } & {
+        placeholderText?: string;
+    }, {}, {}, {}, {}, import('vue').ComponentOptionsMixin, import('vue').ComponentOptionsMixin, {}, string, import('vue').PublicProps, Readonly<{
+        anchor?: import('../types/global').Anchor;
+        autoFocus?: boolean;
+        autoScrollDown?: boolean;
+        autoSelectAll?: boolean;
+        background?: import('../types/global').PatchStyle | string;
+        contentHeight?: number;
+        contentWidth?: number;
+        decoration?: import('../types/global').InputFieldDecorationStyle;
+        flexWeight?: number;
+        hitTestVisible?: boolean;
+        isReadOnly?: boolean;
+        keepScrollPosition?: boolean;
+        maskTexturePath?: string;
+        maxLength?: number;
+        mouseWheelScrollBehaviour?: import('../types/global').MouseWheelScrollBehaviourType;
+        outlineColor?: string;
+        outlineSize?: number;
+        overscroll?: boolean;
+        padding?: import('../types/global').Padding;
+        passwordChar?: string;
+        placeholderStyle?: import('../types/global').InputFieldStyle;
+        placeholderText?: string;
+        elStyle?: import('../types/global').InputFieldStyle;
+        textTooltipShowDelay?: number;
+        textTooltipStyle?: import('../types/global').TextTooltipStyle;
+        tooltipText?: string;
+        tooltipTextSpans?: Array<import('../types/global').LabelSpan>;
+        value?: string;
+        visible?: boolean;
+    } & {
+        placeholderText?: string;
+    }> & Readonly<{}>, {}, {}, {}, {}, string, import('vue').ComponentProvideOptions, false, {}, any>;
+};

@@ -108,7 +108,7 @@ class VuetaleUIPage(
                 binding.bindingType,
                 binding.elementSelector,
                 EventData.of("RoutingKey", binding.routingKey)
-                    .append("Value", "${binding.elementSelector}.Value"),
+                    .append("@Value", "${binding.elementSelector}.Value"),
                 false  // locksInterface: don't lock other UI interaction
             )
         }
@@ -123,19 +123,26 @@ class VuetaleUIPage(
     ) {
         super.handleDataEvent(ref, store, data)
 
-        val binding = app.eventRegistry.findByRoutingKey(data.routingKey)
-        if (binding != null) {
-            // Invoke the Vue event handler on the V8 thread
-            JSEngine.instance.runOnV8Thread {
-                runCatching {
-                    // Pass the element value as the first argument so Vue handlers can receive it
-                    binding.callback.callVoid(null, data.value)
-                }.onFailure {
-                    logger.warning("Error invoking callback for '${data.routingKey}': ${it.message}")
-                }
+        // Capture only plain values here – never capture the V8ValueFunction itself outside
+        // the V8 thread, because a concurrent hot-reload may close the old runtime and clear
+        // the event registry between this line and the task actually executing on the V8 thread.
+        val routingKey = data.routingKey
+        val value = data.value
+
+        JSEngine.instance.runOnV8Thread {
+            // Re-fetch the binding *inside* the V8 task so we always use the live reference.
+            // If a hot-reload fired in the meantime, forceReset() will have cleared the
+            // registry and this returns null – skipping callVoid before touching the closed runtime.
+            val liveBinding = app.eventRegistry.findByRoutingKey(routingKey)
+            if (liveBinding == null) {
+                logger.warning("No binding found for routingKey='$routingKey' (may be stale after hot-reload)")
+                return@runOnV8Thread
             }
-        } else {
-            logger.warning("No binding found for routingKey='${data.routingKey}'")
+            runCatching {
+                liveBinding.callback.callVoid(null, value)
+            }.onFailure {
+                logger.warning("Error invoking callback for '$routingKey': ${it.message}")
+            }
         }
 
         // Acknowledge the event so Hytale does not consider the page stale

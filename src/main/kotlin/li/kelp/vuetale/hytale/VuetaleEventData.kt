@@ -33,7 +33,7 @@ class VuetaleEventData {
                     { d -> d.routingKey }
                 ).add()
                 .append(
-                    KeyedCodec("Value", STRING),
+                    KeyedCodec("@Value", STRING),
                     { d, v: String? -> d.value = v ?: "" },
                     { d -> d.value }
                 ).add()

@@ -424,7 +424,7 @@ export async function runExtraction(indexUrl = DEFAULT_INDEX_URL): Promise<Extra
   }
 
   const types: Record<string, Record<string, string> | string[]> = {};
-  const elements: Record<string, ElementProperty[]> = {};
+  const elements: Record<string, { properties: ElementProperty[]; acceptsChildElements: boolean }> = {};
   const eventCallbacks: Record<string, EventCallback[]> = {};
 
   for (const [name, parsedType] of [...typePages.entries()].sort((a, b) =>

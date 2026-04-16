@@ -8,6 +8,7 @@ import com.caoccao.javet.values.reference.V8ValueFunction
 import com.caoccao.javet.values.reference.V8ValueObject
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.events.VueEventMapper
+import li.kelp.vuetale.property.PropertyBoolean
 import li.kelp.vuetale.property.PropertyNameMap
 import li.kelp.vuetale.property.PropertyNumber
 import li.kelp.vuetale.property.PropertyOrigin
@@ -106,9 +107,19 @@ class VueBridge(
                     val nextObj = nextValue as V8ValueObject
                     nextObj.memberKeys().forEach { styleKey ->
                         nextObj.get<V8Value>(styleKey).use { sv ->
-                            el.properties[styleKey] = PropertyNumber(styleKey, sv.asKtInt()).apply {
-                                origin = PropertyOrigin.Style
+                            val keyCapitalized = styleKey.capitalize()
+                            val prop: li.kelp.vuetale.property.Property = when (sv) {
+                                is com.caoccao.javet.values.primitive.V8ValueBoolean ->
+                                    PropertyBoolean(keyCapitalized, sv.value)
+
+                                is com.caoccao.javet.values.primitive.V8ValueString ->
+                                    PropertyString(keyCapitalized, sv.value)
+
+                                else ->
+                                    PropertyNumber(keyCapitalized, sv.asKtInt())
                             }
+                            prop.origin = PropertyOrigin.Style
+                            el.properties[keyCapitalized] = prop
                         }
                     }
                 }
@@ -162,7 +173,13 @@ class VueBridge(
                         } else {
                             val fn = nextValue as? V8ValueFunction
                             if (fn != null) {
-                                app.eventRegistry.registerEvent(el, bindingType, fn)
+                                // Clone the function to take ownership of the V8 reference.
+                                // JavetProxyConverter passes arguments as *borrowed* handles that
+                                // Javet closes once patchProp returns.  Without cloning, the stored
+                                // callback would be a dead reference and callVoid would throw
+                                // "Runtime is already closed".
+                                val ownedFn = fn.toClone<V8ValueFunction>()
+                                app.eventRegistry.registerEvent(el, bindingType, ownedFn)
                             } else {
                                 logger.warning("patchProp: expected V8ValueFunction for '$key', got ${nextValue.javaClass.simpleName}")
                             }
