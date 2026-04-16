@@ -12,7 +12,7 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore
 import li.kelp.vuetale.app.App
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.app.AppType
-import li.kelp.vuetale.events.EventBinding
+import com.hypixel.hytale.protocol.packets.interface_.CustomUIEventBindingType
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.property.*
 import li.kelp.vuetale.tree.Element
@@ -130,9 +130,26 @@ class VuetaleUIPage(
                 for (selector in removedSelectors) {
                     cmdBuilder.remove(selector)
                 }
+
+                // Vue inserts children into their parent *before* the parent is
+                // inserted into the grandparent, so insertedElements is ordered
+                // children-first.  Emitting appendInline in that order would
+                // reference parent IDs that don't yet exist in the client DOM.
+                //
+                // Fix: only emit appendInline for *root* insertions – elements
+                // whose parentSelector is NOT itself a newly-inserted element.
+                // GroupElement.render() already includes all descendants
+                // recursively, so a single root appendInline delivers the entire
+                // subtree; all deeper entries in insertedElements are redundant.
+                val insertedSelectors = insertedElements
+                    .map { it.child.buildUniqueSelector() }
+                    .toHashSet()
                 for (ins in insertedElements) {
-                    cmdBuilder.appendInline(ins.parentSelector, ins.child.render(0))
+                    if (ins.parentSelector !in insertedSelectors) {
+                        cmdBuilder.appendInline(ins.parentSelector, ins.child.render(0))
+                    }
                 }
+
                 // Re-register events because newly inserted elements may have bindings.
                 val evtBuilder = UIEventBuilder()
                 registerEventBindings(evtBuilder)
@@ -184,12 +201,19 @@ class VuetaleUIPage(
 
     private fun registerEventBindings(uiEventBuilder: UIEventBuilder) {
         for (binding in app.eventRegistry.getAllBindings()) {
+            // Only ValueChanged carries a Value payload – all other event types
+            // (Activating, RightClicking, …) have no Value property on the element
+            // and Hytale crashes with "Could not gather property value" if we request it.
+            val eventData = EventData.of("RoutingKey", binding.routingKey).let {
+                if (binding.bindingType == CustomUIEventBindingType.ValueChanged)
+                    it.append("@Value", "${binding.elementSelector}.Value")
+                else it
+            }
             uiEventBuilder.addEventBinding(
                 binding.bindingType,
                 binding.elementSelector,
-                EventData.of("RoutingKey", binding.routingKey)
-                    .append("@Value", "${binding.elementSelector}.Value"),
-                false  // locksInterface: don't lock other UI interaction
+                eventData,
+                false
             )
         }
     }

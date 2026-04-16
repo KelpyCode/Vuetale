@@ -223,7 +223,17 @@ object HotReloadManager {
             AppManager.apps[id]?.let { app ->
                 runCatching { app.mount() }
                     .onFailure { logger.warning("Failed to remount app '$id': ${it.message}") }
-                // Mark dirty so VuetaleUIPage.onDirty fires a fresh sendUpdate()
+
+                // The client still has the old DOM with old element IDs.
+                // Discard any incremental tracking accumulated during re-mount and
+                // force a full clear+appendInline so onDirty never tries to reference
+                // new generated IDs that don't yet exist in the client's UI.
+                app.insertedElements.clear()
+                app.removedElementSelectors.clear()
+                app.dirtyElementIds.clear()
+                app.hasStructuralChanges = true
+
+                // isDirty=true triggers onDirty on the next V8 tick
                 app.isDirty = true
             }
         }

@@ -30,8 +30,10 @@ export declare const Core: {
         value?: string;
         visible?: boolean;
     } & {
-        placeholderText?: string;
-    }, {}, {}, {}, {}, import('vue').ComponentOptionsMixin, import('vue').ComponentOptionsMixin, {}, string, import('vue').PublicProps, Readonly<{
+        modelValue?: string;
+    }, {}, {}, {}, {}, import('vue').ComponentOptionsMixin, import('vue').ComponentOptionsMixin, {
+        "update:modelValue": (...args: any[]) => void;
+    }, string, import('vue').PublicProps, Readonly<{
         anchor?: import('../types/global').Anchor;
         autoFocus?: boolean;
         autoScrollDown?: boolean;
@@ -62,6 +64,8 @@ export declare const Core: {
         value?: string;
         visible?: boolean;
     } & {
-        placeholderText?: string;
-    }> & Readonly<{}>, {}, {}, {}, {}, string, import('vue').ComponentProvideOptions, false, {}, any>;
+        modelValue?: string;
+    }> & Readonly<{
+        "onUpdate:modelValue"?: ((...args: any[]) => any) | undefined;
+    }>, {}, {}, {}, {}, string, import('vue').ComponentProvideOptions, false, {}, any>;
 };

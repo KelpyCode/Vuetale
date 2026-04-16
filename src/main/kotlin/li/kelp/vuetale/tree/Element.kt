@@ -50,6 +50,12 @@ abstract class Element(var tag: String) {
     var parent: ElementContainer? = null
     var properties: MutableMap<String, Property> = mutableMapOf()
 
+    /**
+     * Vuetale-internal properties (all starting with `Vt`).
+     * These are never rendered to the `.ui` output and never trigger dirty/re-render.
+     */
+    var vuetaleProperties: MutableMap<String, Any?> = mutableMapOf()
+
     var varFrom: String? = null
     var varName: String? = null
 

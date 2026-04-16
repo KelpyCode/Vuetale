@@ -21,8 +21,8 @@ import li.kelp.vuetale.tree.GroupElement
 import li.kelp.vuetale.tree.RootElement
 import li.kelp.vuetale.util.ReflectUtil
 import li.kelp.vuetale.util.StringUtil.capitalize
-import li.kelp.vuetale.validator.*
-import java.util.logging.Logger
+import li.kelp.vuetale.util.StringUtil.fromKebabCaseToPascalCase
+import li.kelp.vuetale.validator.*import java.util.logging.Logger
 
 class VueBridge(
     private val v8Runtime: V8Runtime,
@@ -59,8 +59,9 @@ class VueBridge(
         val existing = el.properties["Text"] as? PropertyString
         if (existing?.value == text) return  // no change – skip dirty tracking
         el.properties["Text"] = PropertyString("Text", text)
+        if (el.isVtSkipUpdate()) return  // Vuetale flag suppresses dirty flush
         val app = AppManager.getApp(appId)
-        app?.dirtyElementIds?.add(el.id)  // store generated id; selector built at emit time
+        app?.dirtyElementIds?.add(el.id)
         app?.markDirty()
     }
 
@@ -102,11 +103,28 @@ class VueBridge(
         if (element.varFrom != null) {
             app?.removeDependency(element.varFrom!!)
         }
-        // Clean up event bindings for this element before removing it
-        app?.eventRegistry?.unregisterEvents(element.customId ?: element.id)
         app?.removedElementSelectors?.add(element.buildUniqueSelector())
-        element.remove()
+        // Clean up this element and every descendant: unregister event bindings and
+        // remove from idElementMap.  Only calling remove() on the root would leave
+        // child elements as orphans in EventRegistry, causing "event binding target
+        // not found" errors when those stale bindings are re-sent on the next update.
+        cleanupElementTree(app, element)
         app?.markDirty()
+    }
+
+    /**
+     * Recursively unregisters event bindings and removes every element in the subtree
+     * rooted at [element] from [Element.idElementMap].
+     * Children are processed before the parent so that [Element.remove] (which calls
+     * [Element.detachFromParent]) operates on a consistent list.
+     */
+    private fun cleanupElementTree(app: App?, element: Element) {
+        // Recurse into children first (copy to avoid CME from detachFromParent)
+        if (element is ElementContainer) {
+            element.children.toList().forEach { cleanupElementTree(app, it) }
+        }
+        app?.eventRegistry?.unregisterEvents(element.getId())
+        element.remove()  // detachFromParent + idElementMap.remove
     }
 
     fun patchProp(appId: String, el: Element, key: String, prevValue: V8Value, nextValue: V8Value) {
@@ -201,14 +219,20 @@ class VueBridge(
                     }
                     // Event-binding changes don't mutate visual properties – no markDirty needed.
                 } else {
-                    // ── Regular Hytale element property ─────────────────────────
-                    var keyCapitalized = key.capitalize()
+                    // ── Vuetale-internal property (Vt*) ─────────────────────────
+                    // Vue passes prop names in kebab-case; convert to PascalCase for Hytale/Vuetale lookup.
+                    // e.g. vt-skip-update → VtSkipUpdate, layout-mode → LayoutMode
+                    var keyCapitalized = key.fromKebabCaseToPascalCase()
 
                     if (PropertyNameMap.containsKey(keyCapitalized)) {
                         keyCapitalized = PropertyNameMap[keyCapitalized]!!
                     }
 
-                    if (nextValue.isNullOrUndefined) {
+                    if (vtPropertySchema.isVuetaleProperty(keyCapitalized)) {
+                        // Vuetale props are stored on the element but never rendered
+                        // and never trigger dirty/re-render.
+                        el.vuetaleProperties[keyCapitalized] = vtPropertySchema.parse(keyCapitalized, nextValue)
+                    } else if (nextValue.isNullOrUndefined) {
                         el.properties.remove(keyCapitalized)
                         // Removal can't be expressed as a targeted set command – need full re-render
                         el.app?.hasStructuralChanges = true
@@ -223,8 +247,10 @@ class VueBridge(
                             // spuriously added to dirtyElementIds on every keystroke.
                             if (existing?.render() != prop.render()) {
                                 el.properties[keyCapitalized] = prop
-                                el.app?.dirtyElementIds?.add(el.id)  // store generated id; selector built at emit time
-                                el.app?.markDirty()
+                                if (!el.isVtSkipUpdate()) {
+                                    el.app?.dirtyElementIds?.add(el.id)
+                                    el.app?.markDirty()
+                                }
                             }
                         }
                     } else {

@@ -1,43 +1,44 @@
-import { defineComponent as s, ref as i, openBlock as p, createElementBlock as h, createVNode as t, unref as o, withCtx as u, createElementVNode as _, toDisplayString as f } from "vue";
-import { Common as r } from "./Common.js";
-import { Core as x } from "./Core.js";
-const g = { anchor: { Full: 1, Left: 0, Right: 0 } }, E = {
+import { defineComponent as p, ref as i, openBlock as u, createElementBlock as h, createVNode as n, unref as o, withCtx as c, createElementVNode as r, toDisplayString as f, createBlock as x, createCommentVNode as g } from "vue";
+import { Common as _ } from "./Common.js";
+import { Core as v } from "./Core.js";
+const E = { anchor: { Full: 1, Left: 0, Right: 0 } }, T = {
   "layout-mode": "Top",
   "flex-weight": 1,
   anchor: { Full: 1 }
-}, e = /* @__PURE__ */ s({
+}, e = /* @__PURE__ */ p({
   __name: "App",
-  setup(c) {
+  setup(d) {
     console.log("WORKS!");
-    function d() {
-      console.log("CLICKED ME"), l.value = !l.value;
+    function m() {
+      console.log("CLICKED ME"), t.value = !t.value;
     }
-    const l = i(!1), n = i("nothing yet");
-    return (T, a) => (p(), h("Group", g, [
-      t(o(r).Container, {
+    const t = i(!1), l = i("nothing yet");
+    return (C, a) => (u(), h("Group", E, [
+      n(o(_).Container, {
         anchor: { Height: 800, Width: 600 },
         "close-button": ""
       }, {
-        title: u(() => [
-          t(o(r).Title, {
-            text: l.value ? "Title example" : "Another title"
+        title: c(() => [
+          n(o(_).Title, {
+            text: t.value ? "Title example" : "Anotherx title"
           }, null, 8, ["text"])
         ]),
-        content: u(() => [
-          _("Group", E, [
-            _("Group", null, [
-              _("Label", null, "You can also write inside tags " + f(n.value), 1)
+        content: c(() => [
+          r("Group", T, [
+            r("Group", null, [
+              r("Label", null, "You can also write inside tags " + f(l.value), 1)
             ]),
-            t(o(r).TextButton, {
+            n(o(_).TextButton, {
               text: "Example test",
-              onActivating: d,
+              onActivating: m,
               anchor: { Height: 20, Top: 80 }
             }),
-            t(o(x).TextField, {
-              modelValue: n.value,
-              "onUpdate:modelValue": a[0] || (a[0] = (m) => n.value = m),
-              anchor: { Height: 30, Top: 50 }
-            }, null, 8, ["modelValue"])
+            t.value ? (u(), x(o(v).TextField, {
+              key: 0,
+              modelValue: l.value,
+              "onUpdate:modelValue": a[0] || (a[0] = (s) => l.value = s),
+              anchor: { Height: 120, Top: 10, Width: 200 }
+            }, null, 8, ["modelValue"])) : g("", !0)
           ])
         ]),
         _: 1
@@ -50,4 +51,4 @@ typeof __VUE_HMR_RUNTIME__ < "u" && (__VUE_HMR_RUNTIME__.createRecord(e.__hmrId,
 export {
   e as default
 };
-//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiQXBwLnZ1ZS5qcyIsInNvdXJjZXMiOltdLCJzb3VyY2VzQ29udGVudCI6W10sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiI7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7In0=
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiQXBwLnZ1ZS5qcyIsInNvdXJjZXMiOltdLCJzb3VyY2VzQ29udGVudCI6W10sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiI7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7OyJ9
