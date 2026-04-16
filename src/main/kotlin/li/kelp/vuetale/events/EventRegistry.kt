@@ -34,7 +34,7 @@ class EventRegistry(val app: App) {
         bindingType: CustomUIEventBindingType,
         callback: V8ValueFunction
     ) {
-        val rawId = element.customId ?: element.id
+        val rawId = element.getId()
         val selector = "#$rawId"
         val routingKey = "${rawId}__${bindingType.name}"
 

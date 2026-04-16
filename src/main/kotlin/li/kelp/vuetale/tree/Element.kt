@@ -53,6 +53,14 @@ abstract class Element(var tag: String) {
     var varFrom: String? = null
     var varName: String? = null
 
+    @JvmName("getUniqueId")
+    fun getId(): String {
+        if (customId != null) {
+            return "$customId${id.take(8)}"
+        }
+        return id
+    }
+
     fun setPropertySafe(name: String, property: Property) {
         if (this.canHaveProperty(name)) {
             properties[name] = property
@@ -110,4 +118,10 @@ abstract class Element(var tag: String) {
         detachFromParent()
         idElementMap.remove(id)
     }
+
+    /**
+     * CSS-style selector matching exactly what is rendered into the `.ui` file and
+     * what Hytale accepts in `UICommandBuilder` commands.
+     */
+    fun buildUniqueSelector(): String = "#${getId()}"
 }

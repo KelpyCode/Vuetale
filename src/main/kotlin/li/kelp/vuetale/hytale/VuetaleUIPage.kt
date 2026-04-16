@@ -14,6 +14,8 @@ import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.app.AppType
 import li.kelp.vuetale.events.EventBinding
 import li.kelp.vuetale.javascript.JSEngine
+import li.kelp.vuetale.property.*
+import li.kelp.vuetale.tree.Element
 import java.util.logging.Logger
 
 /**
@@ -82,26 +84,104 @@ class VuetaleUIPage(
         // 4. Register all Vue event bindings collected during mount
         registerEventBindings(uiEventBuilder)
 
+        // Clear stale mount-time tracking: all inserts/patches during mount are already
+        // covered by the appendInline above.  If we leave these lists populated, the first
+        // onDirty invocation would re-process mount-time data and emit bogus structural
+        // commands referencing element IDs that may no longer exist in the client's UI.
+        app.hasStructuralChanges = false
+        app.dirtyElementIds.clear()
+        app.removedElementSelectors.clear()
+        app.insertedElements.clear()
+        app.isDirty = false
+
         // 5. Wire up the dirty → incremental-update pipeline.
-        //    This lambda runs on the vuetale-v8 thread; wrap with world.execute{} if needed.
+        //    This lambda runs on the vuetale-v8 thread
         app.onDirty = {
-            val cmdBuilder = UICommandBuilder()
-                .clear("#App")
-                .appendInline("#App", app.root.render(0))
-            val evtBuilder = UIEventBuilder()
-            registerEventBindings(evtBuilder)
-            sendUpdate(cmdBuilder, evtBuilder, false)
+            val structuralChange = app.hasStructuralChanges
+            val dirtyIds = app.dirtyElementIds.toSet()
+            val removedSelectors = app.removedElementSelectors.toList()
+            val insertedElements = app.insertedElements.toList()
+
+            // Reset tracking state before building the update so any mutations that
+            // fire during sendUpdate are captured for the *next* batch.
+            app.hasStructuralChanges = false
+            app.dirtyElementIds.clear()
+            app.removedElementSelectors.clear()
+            app.insertedElements.clear()
+
+            val hasElementStructural = removedSelectors.isNotEmpty() || insertedElements.isNotEmpty()
+
+            if (structuralChange) {
+                // ── Full re-render ─────────────────────────────────────────
+                // Required when a property was removed (set to null/undefined in Vue),
+                // which cannot be expressed as a targeted set command.
+                val cmdBuilder = UICommandBuilder()
+                    .clear("#App")
+                    .appendInline("#App", app.root.render(0))
+                val evtBuilder = UIEventBuilder()
+                registerEventBindings(evtBuilder)
+                sendUpdate(cmdBuilder, evtBuilder, false)
+            } else if (hasElementStructural) {
+                // ── Targeted element insert / remove ───────────────────────
+                // Elements were added or removed (e.g. v-if toggled).  Emit
+                // targeted remove/appendInline commands so unrelated elements
+                // (like a focused textbox) are not destroyed and re-created.
+                val cmdBuilder = UICommandBuilder()
+                for (selector in removedSelectors) {
+                    cmdBuilder.remove(selector)
+                }
+                for (ins in insertedElements) {
+                    cmdBuilder.appendInline(ins.parentSelector, ins.child.render(0))
+                }
+                // Re-register events because newly inserted elements may have bindings.
+                val evtBuilder = UIEventBuilder()
+                registerEventBindings(evtBuilder)
+                sendUpdate(cmdBuilder, evtBuilder, false)
+            } else if (dirtyIds.isNotEmpty()) {
+                // ── Incremental property update ────────────────────────────
+                // Only scalar/record properties changed – no elements were
+                // added or removed.  Emit targeted set commands so the client
+                // never destroys the focused TextField.
+                val cmdBuilder = UICommandBuilder()
+                var needsFallback = false
+
+                for (rawId in dirtyIds) {
+                    val element = Element.idElementMap[rawId]
+                    if (element == null) {
+                        // Element was removed between markDirty and onDirty – safe to skip.
+                        continue
+                    }
+                    // Use the unique parent-chain selector so elements with custom IDs
+                    // (e.g. #Title, #Content) are targeted unambiguously even when the
+                    // same component is mounted multiple times on one page.
+                    val selector = element.buildUniqueSelector()
+                    for (prop in element.properties.values) {
+                        if (!emitPropertySet(cmdBuilder, selector, prop)) {
+                            needsFallback = true
+                            break
+                        }
+                    }
+                    if (needsFallback) break
+                }
+
+                if (needsFallback) {
+                    // An unsupported property type was encountered – fall back to full re-render.
+                    val cmdBuilder2 = UICommandBuilder()
+                        .clear("#App")
+                        .appendInline("#App", app.root.render(0))
+                    val evtBuilder = UIEventBuilder()
+                    registerEventBindings(evtBuilder)
+                    sendUpdate(cmdBuilder2, evtBuilder, false)
+                } else {
+                    // No event re-registration needed: element IDs and routing keys are stable.
+                    sendUpdate(cmdBuilder, false)
+                }
+            }
         }
     }
 
-    /**
-     * Iterate all live [EventBinding]s and add them to [uiEventBuilder].
-     *
-     * The [EventData] encodes two keys the client will capture and send back:
-     * - `"routingKey"` – a static discriminator (`"<rawId>__<typeName>"`) used to route to
-     *   the correct Vue callback in [handleDataEvent].
-     * - `"value"` – the element's current `.Value` property (blank for activation events).
-     */
+    // ── Helpers ────────────────────────────────────────────────────────────
+
     private fun registerEventBindings(uiEventBuilder: UIEventBuilder) {
         for (binding in app.eventRegistry.getAllBindings()) {
             uiEventBuilder.addEventBinding(
@@ -111,6 +191,64 @@ class VuetaleUIPage(
                     .append("@Value", "${binding.elementSelector}.Value"),
                 false  // locksInterface: don't lock other UI interaction
             )
+        }
+    }
+
+    /**
+     * Emit a single `UICommandBuilder.set` command for [prop] on [elementSelector].
+     *
+     * Returns `true` if the property was handled, `false` if the type is unsupported
+     * and the caller should fall back to a full re-render.
+     *
+     * [PropertyRecord] is handled recursively using dotted-path selectors
+     * (e.g. `#id.Anchor.Left`).
+     */
+    private fun emitPropertySet(
+        builder: UICommandBuilder,
+        elementSelector: String,
+        prop: Property
+    ): Boolean {
+        val path = "$elementSelector.${prop.name}"
+        return when (prop) {
+            is PropertyString -> {
+                val v = prop.value
+                if (v != null) builder.set(path, v) else builder.setNull(path)
+                true
+            }
+
+            is PropertyNumber -> {
+                val v = prop.value
+                when {
+                    v == null -> builder.setNull(path)
+                    v is Int -> builder.set(path, v)
+                    v is Float -> builder.set(path, v)
+                    v is Double -> builder.set(path, v)
+                    else -> builder.set(path, v.toDouble())
+                }
+                true
+            }
+
+            is PropertyBoolean -> {
+                val v = prop.value
+                if (v != null) builder.set(path, v) else builder.setNull(path)
+                true
+            }
+
+            is PropertyEnum -> {
+                // Enum values are plain identifier strings (e.g. "Center", "Top")
+                val v = prop.value
+                if (v != null) builder.set(path, v) else builder.setNull(path)
+                true
+            }
+
+            is PropertyRecord -> {
+                // Recurse: emit one set command per sub-property with a dotted path
+                prop.map.values.all { subProp ->
+                    emitPropertySet(builder, "$elementSelector.${prop.name}", subProp)
+                }
+            }
+
+            else -> false  // unknown type – trigger fallback
         }
     }
 
@@ -158,7 +296,4 @@ class VuetaleUIPage(
         super.onDismiss(ref, store)
     }
 }
-
-
-
 

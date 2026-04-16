@@ -3,6 +3,7 @@
 import com.caoccao.javet.values.V8Value
 import li.kelp.vuetale.events.EventRegistry
 import li.kelp.vuetale.javascript.JSEngine
+import li.kelp.vuetale.tree.Element
 import li.kelp.vuetale.tree.RootElement
 import java.util.logging.Logger
 
@@ -41,7 +42,29 @@ class App(val owner: String, val type: AppType) {
     var onDirty: (() -> Unit)? = null
 
     /**
-     * Signal that the element tree has changed.  The actual [onDirty] notification is
+     * Set to true by VueBridge.patchProp when a property is *removed* (set to null/undefined).
+     * Removal cannot be expressed as a targeted `set` command, so a full clear + re-render is
+     * required.  Element-level insert/remove is tracked separately via [removedElementSelectors]
+     * and [insertedElements] so those cases can use targeted commands instead.
+     */
+    var hasStructuralChanges: Boolean = false
+
+    /** Selectors (e.g. `"#vtabc123"`) of elements removed during the last Vue render batch. */
+    val removedElementSelectors: MutableList<String> = mutableListOf()
+
+    /** Elements inserted during the last Vue render batch, paired with their parent selector. */
+    data class InsertedElement(val child: Element, val parentSelector: String)
+
+    val insertedElements: MutableList<InsertedElement> = mutableListOf()
+
+    /**
+     * Raw element IDs (no `#`) whose Hytale properties were patched in the last Vue batch.
+     * Used by VuetaleUIPage.onDirty to emit targeted `set` commands instead of a full
+     * clear + appendInline when no structural changes occurred.
+     */
+    val dirtyElementIds: MutableSet<String> = mutableSetOf()
+
+    /* Signal that the element tree has changed.  The actual [onDirty] notification is
      * deferred to the next [JSEngine] tick so that Vue's entire render batch is applied
      * before a new UI frame is sent to the client.
      */
@@ -70,6 +93,10 @@ class App(val owner: String, val type: AppType) {
         isMounted = false
         isDirty = false
         root = RootElement().also { it.app = this }
+        hasStructuralChanges = false
+        removedElementSelectors.clear()
+        insertedElements.clear()
+        dirtyElementIds.clear()
         // closeAll() wraps each V8 callback.close() in runCatching internally,
         // so this is safe even when V8 is already torn down.
         eventRegistry.closeAll()

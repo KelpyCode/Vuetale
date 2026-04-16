@@ -6,6 +6,7 @@ import com.caoccao.javet.values.V8Value
 import com.caoccao.javet.values.primitive.V8ValueString
 import com.caoccao.javet.values.reference.V8ValueFunction
 import com.caoccao.javet.values.reference.V8ValueObject
+import li.kelp.vuetale.app.App
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.events.VueEventMapper
 import li.kelp.vuetale.property.PropertyBoolean
@@ -17,6 +18,7 @@ import li.kelp.vuetale.style.StyleRegistry
 import li.kelp.vuetale.tree.Element
 import li.kelp.vuetale.tree.ElementContainer
 import li.kelp.vuetale.tree.GroupElement
+import li.kelp.vuetale.tree.RootElement
 import li.kelp.vuetale.util.ReflectUtil
 import li.kelp.vuetale.util.StringUtil.capitalize
 import li.kelp.vuetale.validator.*
@@ -54,7 +56,12 @@ class VueBridge(
     fun setText(appId: String) {}
 
     fun setElementText(appId: String, el: Element, text: String) {
+        val existing = el.properties["Text"] as? PropertyString
+        if (existing?.value == text) return  // no change – skip dirty tracking
         el.properties["Text"] = PropertyString("Text", text)
+        val app = AppManager.getApp(appId)
+        app?.dirtyElementIds?.add(el.id)  // store generated id; selector built at emit time
+        app?.markDirty()
     }
 
     fun parentNode(appId: String) {}
@@ -62,9 +69,7 @@ class VueBridge(
     fun nextSibling(appId: String) {}
 
     fun insert(appId: String, child: Element?, parent: Any?) {
-        if (child == null) return // text/comment nodes return null from createText/createComment – no-op
-        // `parent` is either a proxied Kotlin ElementContainer or the plain JS
-        // container wrapper ({_vtContainerId, ...}) that Vue mounts on.
+        if (child == null) return
         val actualParent: ElementContainer? = when {
             parent is ElementContainer -> parent
             parent is Map<*, *> && parent.containsKey("_vtContainerId") ->
@@ -77,7 +82,16 @@ class VueBridge(
         }
         if (actualParent != null) {
             actualParent.appendChild(child)
-            AppManager.getApp(appId)?.markDirty()
+            val app = AppManager.getApp(appId)
+            if (app != null) {
+                val parentSelector = when {
+                    parent is Map<*, *> && parent.containsKey("_vtContainerId") -> "#App"
+                    actualParent is RootElement -> "#App"
+                    else -> actualParent.buildUniqueSelector()
+                }
+                app.insertedElements.add(App.InsertedElement(child, parentSelector))
+                app.markDirty()
+            }
         } else {
             logger.warning("insert: could not resolve parent for child ${child.id}")
         }
@@ -89,8 +103,8 @@ class VueBridge(
             app?.removeDependency(element.varFrom!!)
         }
         // Clean up event bindings for this element before removing it
-        val rawId = element.customId ?: element.id
-        app?.eventRegistry?.unregisterEvents(rawId)
+        app?.eventRegistry?.unregisterEvents(element.customId ?: element.id)
+        app?.removedElementSelectors?.add(element.buildUniqueSelector())
         element.remove()
         app?.markDirty()
     }
@@ -169,7 +183,7 @@ class VueBridge(
                     val app = el.app
                     if (app != null) {
                         if (nextValue.isNullOrUndefined) {
-                            app.eventRegistry.unregisterEvents(el.customId ?: el.id)
+                            app.eventRegistry.unregisterEvents(el.getId())
                         } else {
                             val fn = nextValue as? V8ValueFunction
                             if (fn != null) {
@@ -185,6 +199,7 @@ class VueBridge(
                             }
                         }
                     }
+                    // Event-binding changes don't mutate visual properties – no markDirty needed.
                 } else {
                     // ── Regular Hytale element property ─────────────────────────
                     var keyCapitalized = key.capitalize()
@@ -195,17 +210,27 @@ class VueBridge(
 
                     if (nextValue.isNullOrUndefined) {
                         el.properties.remove(keyCapitalized)
+                        // Removal can't be expressed as a targeted set command – need full re-render
+                        el.app?.hasStructuralChanges = true
+                        el.app?.markDirty()
                     } else if (el.canHaveProperty(keyCapitalized)) {
                         val prop = el.executeProperty(keyCapitalized, nextValue)
                         if (prop != null) {
-                            el.properties[keyCapitalized] = prop
+                            val existing = el.properties[keyCapitalized]
+                            // Only mark dirty when the value actually changed.
+                            // Vue re-patches every prop on each component re-render, so without
+                            // this guard static props (Title, Content, CloseButton…) would be
+                            // spuriously added to dirtyElementIds on every keystroke.
+                            if (existing?.render() != prop.render()) {
+                                el.properties[keyCapitalized] = prop
+                                el.app?.dirtyElementIds?.add(el.id)  // store generated id; selector built at emit time
+                                el.app?.markDirty()
+                            }
                         }
                     } else {
                         logger.warning("Unknown property '$keyCapitalized', ignoring")
                     }
                 }
-                // Mark dirty for every prop mutation so incremental updates fire correctly
-                el.app?.markDirty()
             }
         }
 

@@ -53,7 +53,7 @@ object RenderUtil {
         } else element.tag
 
 
-        selector += " #${element.customId ?: element.id}"
+        selector += " #${element.getId()}"
         return selector
     }
 }
