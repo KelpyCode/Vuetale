@@ -137,29 +137,14 @@ class VuetaleUIPage(
 
             val hasElementStructural = removedSelectors.isNotEmpty() || insertedElements.isNotEmpty()
 
-            if (structuralChange) {
+            if (structuralChange || hasElementStructural) {
                 // ── Full re-render ─────────────────────────────────────────
+                // Targeted remove/insert is avoided because stale selectors
+                // (e.g. after ErrorBoundary transitions) cause "element not found"
+                // client disconnects.  A full clear+re-render is always safe.
                 val cmdBuilder = UICommandBuilder()
                     .clear("#App")
                     .appendInline("#App", app.root.render(0))
-                val evtBuilder = UIEventBuilder()
-                registerEventBindings(evtBuilder)
-                sendUpdateAsync(cmdBuilder, evtBuilder, false)
-            } else if (hasElementStructural) {
-                // ── Targeted element insert / remove ───────────────────────
-                val cmdBuilder = UICommandBuilder()
-                for (selector in removedSelectors) {
-                    cmdBuilder.remove(selector)
-                }
-
-                val insertedSelectors = insertedElements
-                    .map { it.child.buildUniqueSelector() }
-                    .toHashSet()
-                for (ins in insertedElements) {
-                    if (ins.parentSelector !in insertedSelectors) {
-                        cmdBuilder.appendInline(ins.parentSelector, ins.child.render(0))
-                    }
-                }
 
                 val evtBuilder = UIEventBuilder()
                 registerEventBindings(evtBuilder)
