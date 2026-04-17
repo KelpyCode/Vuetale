@@ -16,6 +16,7 @@ import com.hypixel.hytale.protocol.packets.interface_.CustomUIEventBindingType
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.property.*
 import li.kelp.vuetale.tree.Element
+import java.util.concurrent.CompletableFuture
 import java.util.logging.Logger
 
 /**
@@ -55,8 +56,27 @@ class VuetaleUIPage(
 
     private val logger = Logger.getLogger("VuetaleUIPage[$appOwner-$appType]")
 
+    /**
+     * Set to false in [onDismiss] so any in-flight async sendUpdate dispatched from
+     * [App.onDirty] is silently dropped rather than calling into a dismissed page.
+     */
+    @Volatile
+    private var isActive = true
+
     /** The Vuetale app that owns the element tree for this page. */
     val app: App = run {
+        // Silence the old app's dirty callback BEFORE calling removeApp.
+        //
+        // removeApp → unmount() → evalScript() blocks this thread while holding
+        // whatever Hytale player/page lock openCustomPage acquired.  If the V8 tick
+        // fires during that block it would call onDirty → sendUpdate which tries to
+        // acquire the same lock → deadlock (no logs, server appears frozen).
+        //
+        // Nulling onDirty here ensures the tick is a no-op during the evalScript wait.
+        val oldApp = AppManager.getApp(AppManager.getAppId(appOwner, appType))
+        oldApp?.onDirty = null
+        oldApp?.isDirty = false
+
         // Defensively remove a stale app (e.g. from a previous session)
         AppManager.removeApp(appOwner, appType)
         AppManager.createApp(appOwner, appType)
@@ -95,7 +115,13 @@ class VuetaleUIPage(
         app.isDirty = false
 
         // 5. Wire up the dirty → incremental-update pipeline.
-        //    This lambda runs on the vuetale-v8 thread
+        //    This lambda runs on the vuetale-v8 thread.
+        //
+        //    IMPORTANT: sendUpdate() must NEVER be called directly on the V8 thread.
+        //    If sendUpdate() blocks (acquiring a Hytale player/page lock) and at the
+        //    same time a second openCustomPage call on the game thread is waiting for
+        //    the V8 thread via evalScript(), the two threads deadlock permanently.
+        //    Dispatching via CompletableFuture.runAsync() keeps the V8 tick non-blocking.
         app.onDirty = {
             val structuralChange = app.hasStructuralChanges
             val dirtyIds = app.dirtyElementIds.toSet()
@@ -113,34 +139,19 @@ class VuetaleUIPage(
 
             if (structuralChange) {
                 // ── Full re-render ─────────────────────────────────────────
-                // Required when a property was removed (set to null/undefined in Vue),
-                // which cannot be expressed as a targeted set command.
                 val cmdBuilder = UICommandBuilder()
                     .clear("#App")
                     .appendInline("#App", app.root.render(0))
                 val evtBuilder = UIEventBuilder()
                 registerEventBindings(evtBuilder)
-                sendUpdate(cmdBuilder, evtBuilder, false)
+                sendUpdateAsync(cmdBuilder, evtBuilder, false)
             } else if (hasElementStructural) {
                 // ── Targeted element insert / remove ───────────────────────
-                // Elements were added or removed (e.g. v-if toggled).  Emit
-                // targeted remove/appendInline commands so unrelated elements
-                // (like a focused textbox) are not destroyed and re-created.
                 val cmdBuilder = UICommandBuilder()
                 for (selector in removedSelectors) {
                     cmdBuilder.remove(selector)
                 }
 
-                // Vue inserts children into their parent *before* the parent is
-                // inserted into the grandparent, so insertedElements is ordered
-                // children-first.  Emitting appendInline in that order would
-                // reference parent IDs that don't yet exist in the client DOM.
-                //
-                // Fix: only emit appendInline for *root* insertions – elements
-                // whose parentSelector is NOT itself a newly-inserted element.
-                // GroupElement.render() already includes all descendants
-                // recursively, so a single root appendInline delivers the entire
-                // subtree; all deeper entries in insertedElements are redundant.
                 val insertedSelectors = insertedElements
                     .map { it.child.buildUniqueSelector() }
                     .toHashSet()
@@ -150,27 +161,19 @@ class VuetaleUIPage(
                     }
                 }
 
-                // Re-register events because newly inserted elements may have bindings.
                 val evtBuilder = UIEventBuilder()
                 registerEventBindings(evtBuilder)
-                sendUpdate(cmdBuilder, evtBuilder, false)
+                sendUpdateAsync(cmdBuilder, evtBuilder, false)
             } else if (dirtyIds.isNotEmpty()) {
                 // ── Incremental property update ────────────────────────────
-                // Only scalar/record properties changed – no elements were
-                // added or removed.  Emit targeted set commands so the client
-                // never destroys the focused TextField.
                 val cmdBuilder = UICommandBuilder()
                 var needsFallback = false
 
                 for (rawId in dirtyIds) {
                     val element = Element.idElementMap[rawId]
                     if (element == null) {
-                        // Element was removed between markDirty and onDirty – safe to skip.
                         continue
                     }
-                    // Use the unique parent-chain selector so elements with custom IDs
-                    // (e.g. #Title, #Content) are targeted unambiguously even when the
-                    // same component is mounted multiple times on one page.
                     val selector = element.buildUniqueSelector()
                     for (prop in element.properties.values) {
                         if (!emitPropertySet(cmdBuilder, selector, prop)) {
@@ -182,22 +185,41 @@ class VuetaleUIPage(
                 }
 
                 if (needsFallback) {
-                    // An unsupported property type was encountered – fall back to full re-render.
                     val cmdBuilder2 = UICommandBuilder()
                         .clear("#App")
                         .appendInline("#App", app.root.render(0))
                     val evtBuilder = UIEventBuilder()
                     registerEventBindings(evtBuilder)
-                    sendUpdate(cmdBuilder2, evtBuilder, false)
+                    sendUpdateAsync(cmdBuilder2, evtBuilder, false)
                 } else {
-                    // No event re-registration needed: element IDs and routing keys are stable.
-                    sendUpdate(cmdBuilder, false)
+                    sendUpdateAsync(cmdBuilder)
                 }
             }
         }
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
+
+    /**
+     * Dispatch a [sendUpdate] call asynchronously on the common ForkJoin pool.
+     *
+     * The [App.onDirty] callback fires on the `vuetale-v8` thread.  Calling [sendUpdate]
+     * directly from that thread risks a deadlock: if [sendUpdate] acquires a Hytale
+     * player/page lock and the game thread is simultaneously waiting for the V8 thread
+     * via [JSEngine.evalScript] (e.g. during a second [build] call), both threads stall
+     * forever.  Dispatching here keeps the V8 tick non-blocking.
+     */
+    private fun sendUpdateAsync(cmdBuilder: UICommandBuilder, evtBuilder: UIEventBuilder, lockInterface: Boolean) {
+        CompletableFuture.runAsync {
+            if (isActive) runCatching { sendUpdate(cmdBuilder, evtBuilder, lockInterface) }
+        }
+    }
+
+    private fun sendUpdateAsync(cmdBuilder: UICommandBuilder) {
+        CompletableFuture.runAsync {
+            if (isActive) runCatching { sendUpdate(cmdBuilder, false) }
+        }
+    }
 
     private fun registerEventBindings(uiEventBuilder: UIEventBuilder) {
         for (binding in app.eventRegistry.getAllBindings()) {
@@ -314,9 +336,19 @@ class VuetaleUIPage(
     // ── onDismiss ──────────────────────────────────────────────────────────
 
     override fun onDismiss(ref: Ref<EntityStore>, store: Store<EntityStore>) {
+        // Prevent any in-flight async sendUpdate from reaching a dismissed page.
+        isActive = false
         // Detach the dirty callback first to avoid any stray update after unmount
         app.onDirty = null
-        AppManager.removeApp(app.owner, app.type)
+
+        // Only remove this specific App instance.  If the user opened the page a
+        // second time before dismissing the first, the constructor will have already
+        // replaced this app in AppManager with a new one.  Calling removeApp by
+        // owner+type would then unmount the *new* app, killing the second session.
+        if (AppManager.getApp(app.getId()) === app) {
+            AppManager.removeApp(app.owner, app.type)
+        }
+
         super.onDismiss(ref, store)
     }
 }

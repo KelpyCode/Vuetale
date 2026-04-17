@@ -125,9 +125,5 @@ abstract class Element(var tag: String) {
         idElementMap.remove(id)
     }
 
-    /**
-     * CSS-style selector matching exactly what is rendered into the `.ui` file and
-     * what Hytale accepts in `UICommandBuilder` commands.
-     */
     fun buildUniqueSelector(): String = "#${getId()}"
 }

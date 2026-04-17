@@ -41,11 +41,17 @@ tasks.withType<JavaExec>().configureEach {
 
 tasks.shadowJar {
     isZip64 = true
-    // Use Shadow's standard pipeline so all transformers (mergeServiceFiles, manifest, etc.)
-    // are applied correctly to every artifact.
     configurations = listOf(project.configurations.getByName("runtimeClasspath"))
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/INDEX.LIST")
     mergeServiceFiles()
+
+    // Automatically deploy to run/mods/ after every build
+    doLast {
+        val dest = rootProject.file("run/mods/${archiveFileName.get()}")
+        dest.parentFile.mkdirs()
+        archiveFile.get().asFile.copyTo(dest, overwrite = true)
+        println("Deployed ${archiveFileName.get()} → run/mods/")
+    }
 }
 
 tasks.test {

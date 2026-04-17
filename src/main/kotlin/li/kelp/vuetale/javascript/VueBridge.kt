@@ -65,9 +65,16 @@ class VueBridge(
         app?.markDirty()
     }
 
-    fun parentNode(appId: String) {}
+    fun parentNode(appId: String, element: Element): ElementContainer? {
+        return element.parent
+    }
 
-    fun nextSibling(appId: String) {}
+    fun nextSibling(appId: String, element: Element): Element? {
+        val parent = element.parent ?: return null
+        val idx = parent.children.indexOf(element)
+        if (idx < 0) return null
+        return parent.children.getOrNull(idx + 1)
+    }
 
     fun insert(appId: String, child: Element?, parent: Any?) {
         if (child == null) return
@@ -98,7 +105,8 @@ class VueBridge(
         }
     }
 
-    fun remove(appId: String, element: Element) {
+    fun remove(appId: String, element: Element?) {
+        if (element == null) return
         val app = AppManager.getApp(appId)
         if (element.varFrom != null) {
             app?.removeDependency(element.varFrom!!)

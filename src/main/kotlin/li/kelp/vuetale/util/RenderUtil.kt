@@ -47,10 +47,7 @@ object RenderUtil {
     }
 
     private fun renderSelector(element: Element): String {
-        var selector = if (element.app != null && element.varFrom != null && element.varName != null) {
-            val dep = element.app!!.getDependencyName(element.varFrom!!)
-            "\$$dep.@${element.varName}"
-        } else element.tag
+        var selector = element.tag
 
 
         selector += " #${element.getId()}"
