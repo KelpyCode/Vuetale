@@ -9,7 +9,7 @@ import java.util.logging.Logger
 
 data class Dependency(var origin: String, var name: String, var dependents: Int)
 
-class App(val owner: String, val type: AppType) {
+class App(val owner: String, val type: AppType, var componentPath: String? = null) {
     private val logger: Logger = Logger.getLogger("App $owner-$type")
     private fun getEngine() = JSEngine.instance
 
@@ -77,7 +77,24 @@ class App(val owner: String, val type: AppType) {
         return AppManager.getAppId(owner, type)
     }
 
-    private fun createApp() = getEngine().evalScript("_vt.createUserApp('${getId()}');")
+    private fun createApp() {
+        if (componentPath != null) {
+            logger.info("Creating app '${getId()}' with component: $componentPath")
+            getEngine().preloadComponent(componentPath!!)
+        } else {
+            logger.warning("Creating app '${getId()}' with NO component path – navigateTo must be called before anything renders")
+        }
+        val engine = getEngine()
+        engine.runOnV8Thread {
+            val result = if (componentPath != null) {
+                engine.loaderCtx.invoke<V8Value>("createUserApp", getId(), componentPath!!)
+            } else {
+                engine.loaderCtx.invoke<V8Value>("createUserApp", getId())
+            }
+            result.close()
+        }
+    }
+
     private fun updateReference() {
         getEngine().runOnV8Thread {
             getEngine().loaderCtx.invoke<V8Value>("registerUserAppRef", getId(), this@App).close()
@@ -143,6 +160,21 @@ class App(val owner: String, val type: AppType) {
         getEngine().evalScript("_vt.getUserApp('${getId()}').mount(_vt.getUserAppRef('${getId()}'));")
         logger.info("Mounted App '${getId()}'")
         isMounted = true
+    }
+
+    /**
+     * Swap the rendered component at runtime without unmounting/remounting the app.
+     * Calls `_vt.navigateTo(id, path)` in JS which updates the reactive path ref.
+     *
+     * @param path  Module path understood by the Javet module resolver, e.g. `"@core/pages/Dashboard"`.
+     */
+    fun navigateTo(path: String) {
+        componentPath = path
+        val engine = getEngine()
+        engine.preloadComponent(path)
+        engine.runOnV8Thread {
+            engine.loaderCtx.invoke<V8Value>("navigateTo", getId(), path).close()
+        }
     }
 
     fun unmount() {

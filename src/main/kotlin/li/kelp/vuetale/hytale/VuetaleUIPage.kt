@@ -51,7 +51,9 @@ class VuetaleUIPage(
     playerRef: PlayerRef,
     appOwner: String,
     appType: AppType = AppType.Page,
-    lifetime: CustomPageLifetime = CustomPageLifetime.CanDismiss
+    lifetime: CustomPageLifetime = CustomPageLifetime.CanDismiss,
+    /** Initial component to render, e.g. `"@core/pages/Dashboard"`. May be changed later via [App.navigateTo]. */
+    componentPath: String? = null,
 ) : InteractiveCustomUIPage<VuetaleEventData>(playerRef, lifetime, VuetaleEventData.CODEC) {
 
     private val logger = Logger.getLogger("VuetaleUIPage[$appOwner-$appType]")
@@ -65,21 +67,27 @@ class VuetaleUIPage(
 
     /** The Vuetale app that owns the element tree for this page. */
     val app: App = run {
-        // Silence the old app's dirty callback BEFORE calling removeApp.
-        //
-        // removeApp → unmount() → evalScript() blocks this thread while holding
-        // whatever Hytale player/page lock openCustomPage acquired.  If the V8 tick
-        // fires during that block it would call onDirty → sendUpdate which tries to
-        // acquire the same lock → deadlock (no logs, server appears frozen).
-        //
-        // Nulling onDirty here ensures the tick is a no-op during the evalScript wait.
-        val oldApp = AppManager.getApp(AppManager.getAppId(appOwner, appType))
-        oldApp?.onDirty = null
-        oldApp?.isDirty = false
+        val existingApp = AppManager.getApp(AppManager.getAppId(appOwner, appType))
 
-        // Defensively remove a stale app (e.g. from a previous session)
-        AppManager.removeApp(appOwner, appType)
-        AppManager.createApp(appOwner, appType)
+        if (existingApp != null) {
+            // Silence the dirty callback so the V8 tick doesn't fire onDirty while
+            // we're in the middle of re-opening the page (deadlock risk, see below).
+            existingApp.onDirty = null
+            existingApp.isDirty = false
+
+            // If a new component path was requested, navigate the live Vue app to it
+            // instead of tearing down and recreating everything.
+            if (componentPath != null && componentPath != existingApp.componentPath) {
+                existingApp.navigateTo(componentPath)
+            }
+
+            existingApp
+        } else {
+            // No existing app – create a fresh one.
+            // Note: we intentionally do NOT call removeApp here; if somehow a stale
+            // entry existed it would have been caught by the branch above.
+            AppManager.createApp(appOwner, appType, componentPath)
+        }
     }
 
     // ── build ──────────────────────────────────────────────────────────────

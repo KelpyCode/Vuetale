@@ -1,12 +1,12 @@
-const r = _vt.createUserApp.bind(_vt);
-_vt.createUserApp = function(e) {
-  const n = r(e);
-  return n.config.performance = !0, n.config.warnHandler = (t, p, o) => {
-    console.warn(`[Vue warn] ${t}
-${o}`);
-  }, console.log(`[vtdebug] App '${e}' created with performance tracking enabled`), n;
+const a = _vt.createUserApp.bind(_vt);
+_vt.createUserApp = function(e, n) {
+  const t = a(e, n);
+  return t.config.performance = !0, t.config.warnHandler = (o, s, r) => {
+    console.warn(`[Vue warn] ${o}
+${r}`);
+  }, console.log(`[vtdebug] App '${e}' created with performance tracking enabled`), t;
 };
-const a = {
+const p = {
   /** Dump a JSON summary of all registered app IDs. */
   dumpApps() {
     const e = Array.from(_vt.USER_APPS.keys());
@@ -31,6 +31,6 @@ const a = {
     console.log(`[vtdebug] ${e.length} app(s): ${e.join(", ") || "(none)"}`);
   }
 };
-globalThis.__vt_debug__ = a;
+globalThis.__vt_debug__ = p;
 console.log("[vtdebug] Vuetale debug module loaded. Use globalThis.__vt_debug__ to inspect apps.");
 //# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiZGVidWcuanMiLCJzb3VyY2VzIjpbXSwic291cmNlc0NvbnRlbnQiOltdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7OzsifQ==

@@ -29,8 +29,8 @@ fun <T> World.getDeferred(consumer: () -> T): CompletableFuture<T> {
 //    return getDeferred(consumer).await()
 //}
 
-suspend fun <T : Component<EntityStore>> PlayerRef.getComponentThreadsafe(component: ComponentType<EntityStore, T>): T? {
-    return this.worldUuid?.toWorld()?.await {
-        this.reference?.store?.getComponent(this.reference!!, component)
-    }
-}
+//suspend fun <T : Component<EntityStore>> PlayerRef.getComponentThreadsafe(component: ComponentType<EntityStore, T>): T? {
+//    return this.worldUuid?.toWorld()?.await {
+//        this.reference?.store?.getComponent(this.reference!!, component)
+//    }
+//}

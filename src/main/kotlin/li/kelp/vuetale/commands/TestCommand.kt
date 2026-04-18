@@ -11,6 +11,7 @@ import com.hypixel.hytale.server.core.universe.PlayerRef
 import com.hypixel.hytale.server.core.universe.world.World
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore
 import li.kelp.vuetale.app.AppType
+import li.kelp.vuetale.app.PlayerUiManager
 import li.kelp.vuetale.hytale.VuetaleUIPage
 import java.util.concurrent.CompletableFuture
 import javax.annotation.Nonnull
@@ -26,12 +27,19 @@ class TestCommand : AbstractPlayerCommand("vuetale", "Super test command!") {
     ) {
         val player: Player? = store.getComponent(ref, Player.getComponentType()) // also a component
 
-        CompletableFuture.runAsync {
-            player?.pageManager?.openCustomPage(
-                ref,
-                store,
-                VuetaleUIPage(playerRef, playerRef.uuid.toString(), AppType.Page)
-            )
-        }
+//        CompletableFuture.runAsync {
+//            player?.pageManager?.openCustomPage(
+//                ref,
+//                store,
+//                VuetaleUIPage(playerRef, playerRef.uuid.toString(), AppType.Page)
+//            )
+//        }
+
+        PlayerUiManager.openPage(
+            playerRef,
+            ref as Ref<EntityStore>,
+            store as Store<EntityStore>,
+            "@core/pages/TestPage.vue.js"
+        )
     }
 }

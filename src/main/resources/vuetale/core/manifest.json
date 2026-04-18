@@ -1,0 +1,17 @@
+{
+  "name": "core",
+  "version": "1.0.0",
+  "description": "Vuetale core UI library",
+  "components": [
+    "App",
+    "ErrorBoundary",
+    "HelloWorld",
+    "Test",
+    "core/TextField"
+  ],
+  "pages": [
+    "HelpPage",
+    "TestPage"
+  ],
+  "huds": []
+}

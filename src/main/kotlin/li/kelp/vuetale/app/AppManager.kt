@@ -19,14 +19,14 @@ object AppManager {
 
     private fun getEngine() = JSEngine.instance
 
-    fun createApp(id: String, type: AppType): App {
+    fun createApp(id: String, type: AppType, componentPath: String? = null): App {
         val fullId = getAppId(id, type)
 
         if (apps.containsKey(fullId)) {
             throw IllegalArgumentException("App with id '$id' already exists")
         }
 
-        return App(id, type).also {
+        return App(id, type, componentPath).also {
             addApp(it)
         }
     }

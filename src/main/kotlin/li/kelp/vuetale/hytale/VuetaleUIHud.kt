@@ -34,25 +34,31 @@ import java.util.logging.Logger
 class VuetaleUIHud(
     playerRef: PlayerRef,
     appOwner: String,
+    /** Initial component to render, e.g. `"@core/huds/MyHud"`. */
+    componentPath: String? = null,
 ) : CustomUIHud(playerRef) {
 
     private val logger = Logger.getLogger("VuetaleUIHud[$appOwner]")
 
-    /**
-     * Set to false in [hide] so any in-flight async update dispatched from
-     * [App.onDirty] is silently dropped rather than calling into a hidden HUD.
-     */
     @Volatile
     private var isActive = true
 
     /** The Vuetale app that owns the element tree for this HUD. */
     val app: App = run {
-        val oldApp = AppManager.getApp(AppManager.getAppId(appOwner, AppType.Hud))
-        oldApp?.onDirty = null
-        oldApp?.isDirty = false
+        val existingApp = AppManager.getApp(AppManager.getAppId(appOwner, AppType.Hud))
 
-        AppManager.removeApp(appOwner, AppType.Hud)
-        AppManager.createApp(appOwner, AppType.Hud)
+        if (existingApp != null) {
+            existingApp.onDirty = null
+            existingApp.isDirty = false
+
+            if (componentPath != null && componentPath != existingApp.componentPath) {
+                existingApp.navigateTo(componentPath)
+            }
+
+            existingApp
+        } else {
+            AppManager.createApp(appOwner, AppType.Hud, componentPath)
+        }
     }
 
     // ── build ──────────────────────────────────────────────────────────────

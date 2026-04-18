@@ -273,6 +273,37 @@ class JSEngine : AutoCloseable {
         }.get()
     }
 
+    /**
+     * Pre-load a Vue component module and register it in `_vt.COMPONENT_REGISTRY`
+     * so that `App.vue` can retrieve it synchronously (bypassing dynamic `import()`
+     * which is not supported in Javet's embedded Node.js runtime).
+     *
+     * This works by compiling a tiny one-shot ES module:
+     * ```js
+     * import __Component from '<aliasPath>';
+     * globalThis._vt.registerComponent('<aliasPath>', __Component);
+     * ```
+     * The static `import` goes through [ClasspathModuleResolver] as normal.
+     *
+     * Must be called **before** [App.createApp] or [App.navigateTo] for the given path.
+     *
+     * @param aliasPath  Module alias path, e.g. `"@core/pages/Dashboard"`.
+     */
+    fun preloadComponent(aliasPath: String) {
+        runOnV8Thread {
+            val escapedPath = aliasPath.replace("'", "\\'")
+            val source = "import __Comp from '$escapedPath'; globalThis._vt.registerComponent('$escapedPath', __Comp);"
+            val fakeResourceName = makeResourceName("__preload__${aliasPath}")
+            val module = v8Runtime.getExecutor(source)
+                .setResourceName(fakeResourceName)
+                .compileV8Module()
+            modulePathIndex[fakeResourceName] = "__preload__${aliasPath}"
+            module.instantiate()
+            module.execute<V8Value>().close()
+            logger.info("Preloaded component: $aliasPath")
+        }
+    }
+
     // ── Module resolver (runs on V8 thread during import resolution) ───────
 
     private inner class ClasspathModuleResolver : IV8ModuleResolver {
@@ -289,7 +320,10 @@ class JSEngine : AutoCloseable {
             val resolvedPath = resolveModulePath(resourceName, referrerPath)
             return moduleCache.getOrPut(resolvedPath) {
                 val source = loadSourceText(resolvedPath)
-                    ?: error("ES module not found: $resolvedPath (imported as '$resourceName')")
+                    ?: run {
+                        logger.warning("ES module not found: $resolvedPath (imported as '$resourceName'${if (referrerPath != null) " from '$referrerPath'" else ""})")
+                        error("ES module not found: $resolvedPath (imported as '$resourceName')")
+                    }
                 val fakeResourceName = makeResourceName(resolvedPath)
                 val module = v8Runtime.getExecutor(source)
                     .setResourceName(fakeResourceName)
@@ -300,7 +334,66 @@ class JSEngine : AutoCloseable {
         }
     }
 
+    /** Manifest data cached per alias (e.g. "core" → ManifestData). */
+    private val manifestCache: MutableMap<String, ManifestData> = mutableMapOf()
+
+    private data class ManifestData(
+        val pages: List<String>,
+        val huds: List<String>,
+        val components: List<String>,
+    )
+
+    /** Load and cache the manifest.json for a given module alias. */
+    private fun getManifest(alias: String): ManifestData {
+        return manifestCache.getOrPut(alias) {
+            val source = loadSourceText("vuetale/$alias/manifest.json")
+                ?: return@getOrPut ManifestData(emptyList(), emptyList(), emptyList())
+            ManifestData(
+                pages      = parseJsonStringArray(source, "pages"),
+                huds       = parseJsonStringArray(source, "huds"),
+                components = parseJsonStringArray(source, "components"),
+            )
+        }
+    }
+
+    private fun parseJsonStringArray(json: String, key: String): List<String> {
+        val block = Regex(""""$key"\s*:\s*\[(.*?)\]""", setOf(RegexOption.DOT_MATCHES_ALL))
+            .find(json)?.groupValues?.get(1) ?: return emptyList()
+        return Regex(""""([^"]+)"""").findAll(block).map { it.groupValues[1] }.toList()
+    }
+
     private fun resolveModulePath(resourceName: String, referrerPath: String?): String {
+        // @alias/some/path  →  vuetale/<alias>/some/path.js
+        // @alias/Name       →  shorthand: look up manifest to find pages/huds/components/Name.vue.js
+        if (resourceName.startsWith("@")) {
+            val withoutAt = resourceName.removePrefix("@")
+            val slash = withoutAt.indexOf('/')
+            if (slash > 0) {
+                val alias = withoutAt.substring(0, slash)
+                val rest  = withoutAt.substring(slash + 1)
+
+                // Bare name (no sub-path) – try manifest lookup first
+                if (!rest.contains('/')) {
+                    val name = rest.removeSuffix(".vue.js").removeSuffix(".js")
+                    val manifest = getManifest(alias)
+                    manifest.pages.find { it == name || it.endsWith("/$name") }?.let { entry ->
+                        val file = if (entry.contains('/')) "$entry.vue.js" else "pages/$entry.vue.js"
+                        return "vuetale/$alias/$file"
+                    }
+                    manifest.huds.find { it == name || it.endsWith("/$name") }?.let { entry ->
+                        val file = if (entry.contains('/')) "$entry.vue.js" else "huds/$entry.vue.js"
+                        return "vuetale/$alias/$file"
+                    }
+                    manifest.components.find { it == name || it.endsWith("/$name") }?.let { entry ->
+                        val file = if (entry.contains('/')) "$entry.vue.js" else "components/$entry.vue.js"
+                        return "vuetale/$alias/$file"
+                    }
+                }
+
+                val withExt = if (rest.endsWith(".js")) rest else "$rest.js"
+                return "vuetale/$alias/$withExt"
+            }
+        }
         if (!resourceName.startsWith(".") && !resourceName.startsWith("/")) {
             val withExt = if (resourceName.endsWith(".js")) resourceName else "$resourceName.js"
             return "vuetale/core/$withExt"
@@ -369,6 +462,8 @@ class JSEngine : AutoCloseable {
         JSEngine::class.java.getResource("/$normalized")?.let { url ->
             return url.openStream().bufferedReader(Charsets.UTF_8).readText()
         }
+        // Try the ModuleRegistry – covers resources living in a third-party mod's JAR.
+        ModuleRegistry.loadText(normalized)?.let { return it }
         return null
     }
 
