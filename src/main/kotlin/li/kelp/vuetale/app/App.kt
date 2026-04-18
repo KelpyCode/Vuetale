@@ -159,6 +159,5 @@ class App(val owner: String, val type: AppType) {
         root.app = this
         createApp()
         updateReference()
-        addDependency("../Common.ui", "C")
     }
 }

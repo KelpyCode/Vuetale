@@ -1,6 +1,4 @@
-﻿$C = "../Common.ui";
-
-Group #App {
+﻿Group #App {
     Anchor: (Full: 0);
 
     LayoutMode: Full;
