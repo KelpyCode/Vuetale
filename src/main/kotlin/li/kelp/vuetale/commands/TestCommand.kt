@@ -39,7 +39,8 @@ class TestCommand : AbstractPlayerCommand("vuetale", "Super test command!") {
             playerRef,
             ref as Ref<EntityStore>,
             store as Store<EntityStore>,
-            "@core/pages/TestPage.vue.js"
+            "core",
+            "TestPage"
         )
     }
 }

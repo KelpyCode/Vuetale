@@ -45,7 +45,7 @@ class PlayerUi internal constructor(
     /**
      * Open (or replace) the player's fullscreen page.
      *
-     * @param componentPath  Module path of the Vue component to show, e.g. `"@core/pages/Dashboard"`.
+     * @param componentPath  Module path of the Vue component to show, e.g. `"vt:@core/pages/Dashboard"`.
      * @param lifetime       When the player may dismiss the screen (default: [CustomPageLifetime.CanDismiss]).
      */
     fun openPage(
@@ -91,7 +91,7 @@ class PlayerUi internal constructor(
     /**
      * Show (or replace) the player's HUD.
      *
-     * @param componentPath  Module path of the Vue component, e.g. `"@core/huds/ActionBar"`.
+     * @param componentPath  Module path of the Vue component, e.g. `"vt:@core/huds/ActionBar"`.
      */
     fun openHud(componentPath: String) {
         val (ref, store, player) = requirePlayerContext()
@@ -141,7 +141,7 @@ class PlayerUi internal constructor(
  * ### Typical usage (inside a command or event handler)
  * ```kotlin
  * val ui = PlayerUiManager.getOrCreate(playerRef.uuid, playerRef, ref, store)
- * ui.openPage("@core/pages/Dashboard")
+ * ui.openPage("vt:@core/pages/Dashboard")
  * ```
  */
 object PlayerUiManager {
@@ -180,7 +180,7 @@ object PlayerUiManager {
      * Open a fullscreen page for the player, creating the [PlayerUi] if needed.
      *
      * ```kotlin
-     * PlayerUiManager.openPage(playerRef, ref, store, "@core/pages/Shop")
+     * PlayerUiManager.openPage(playerRef, ref, store, "vt:@core/pages/Shop")
      * ```
      */
     fun openPage(
@@ -193,6 +193,22 @@ object PlayerUiManager {
         getOrCreate(playerRef.uuid, playerRef, ref, store).openPage(componentPath, lifetime)
     }
 
+    fun openPage(
+        playerRef: PlayerRef,
+        ref: Ref<EntityStore>,
+        store: Store<EntityStore>,
+        module: String,
+        page: String,
+        lifetime: CustomPageLifetime = CustomPageLifetime.CanDismiss,
+    ) {
+        var componentPath = "vt:@$module/pages/$page"
+        if (!componentPath.endsWith(".vue.js")) {
+            componentPath += ".vue.js"
+        }
+
+        getOrCreate(playerRef.uuid, playerRef, ref, store).openPage(componentPath, lifetime)
+    }
+
     /** Show a HUD for the player, creating the [PlayerUi] if needed. */
     fun openHud(
         playerRef: PlayerRef,
@@ -200,6 +216,21 @@ object PlayerUiManager {
         store: Store<EntityStore>,
         componentPath: String,
     ) {
+        getOrCreate(playerRef.uuid, playerRef, ref, store).openHud(componentPath)
+    }
+
+    fun openHud(
+        playerRef: PlayerRef,
+        ref: Ref<EntityStore>,
+        store: Store<EntityStore>,
+        module: String,
+        hud: String,
+    ) {
+        var componentPath = "vt:@$module/huds/$hud"
+        if (!componentPath.endsWith(".vue.js")) {
+            componentPath += ".vue.js"
+        }
+
         getOrCreate(playerRef.uuid, playerRef, ref, store).openHud(componentPath)
     }
 }

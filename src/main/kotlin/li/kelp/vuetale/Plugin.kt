@@ -16,8 +16,8 @@ class Plugin(init: JavaPluginInit) : JavaPlugin(init) {
     override fun setup() {
         logger.atInfo().log("Hello World!")
 
-        // Register this JAR's resources under the '@core' alias so other mods
-        // can import from '@core/components/...' etc.
+        // Register this JAR's resources under the 'vt:@core' alias so other mods
+        // can import from 'vt:@core/components/...' etc.
         ModuleRegistry.registerModule("core", Plugin::class.java)
 
         //val app = AppManager.createApp("test", AppType.Page)

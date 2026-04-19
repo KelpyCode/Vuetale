@@ -34,7 +34,7 @@ import java.util.logging.Logger
 class VuetaleUIHud(
     playerRef: PlayerRef,
     appOwner: String,
-    /** Initial component to render, e.g. `"@core/huds/MyHud"`. */
+    /** Initial component to render, e.g. `"vt:@core/huds/MyHud"`. */
     componentPath: String? = null,
 ) : CustomUIHud(playerRef) {
 

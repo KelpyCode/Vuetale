@@ -52,7 +52,7 @@ class VuetaleUIPage(
     appOwner: String,
     appType: AppType = AppType.Page,
     lifetime: CustomPageLifetime = CustomPageLifetime.CanDismiss,
-    /** Initial component to render, e.g. `"@core/pages/Dashboard"`. May be changed later via [App.navigateTo]. */
+    /** Initial component to render, e.g. `"vt:@core/pages/Dashboard"`. May be changed later via [App.navigateTo]. */
     componentPath: String? = null,
 ) : InteractiveCustomUIPage<VuetaleEventData>(playerRef, lifetime, VuetaleEventData.CODEC) {
 

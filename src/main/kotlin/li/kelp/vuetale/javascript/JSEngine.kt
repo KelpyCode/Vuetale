@@ -287,7 +287,7 @@ class JSEngine : AutoCloseable {
      *
      * Must be called **before** [App.createApp] or [App.navigateTo] for the given path.
      *
-     * @param aliasPath  Module alias path, e.g. `"@core/pages/Dashboard"`.
+     * @param aliasPath  Module alias path, e.g. `"vt:@core/pages/Dashboard"`.
      */
     fun preloadComponent(aliasPath: String) {
         runOnV8Thread {
@@ -365,8 +365,8 @@ class JSEngine : AutoCloseable {
     private fun resolveModulePath(resourceName: String, referrerPath: String?): String {
         // @alias/some/path  →  vuetale/<alias>/some/path.js
         // @alias/Name       →  shorthand: look up manifest to find pages/huds/components/Name.vue.js
-        if (resourceName.startsWith("@")) {
-            val withoutAt = resourceName.removePrefix("@")
+        if (resourceName.startsWith("vt:@")) {
+            val withoutAt = resourceName.removePrefix("vt:@")
             val slash = withoutAt.indexOf('/')
             if (slash > 0) {
                 val alias = withoutAt.substring(0, slash)

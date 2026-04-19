@@ -166,7 +166,7 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
      * Swap the rendered component at runtime without unmounting/remounting the app.
      * Calls `_vt.navigateTo(id, path)` in JS which updates the reactive path ref.
      *
-     * @param path  Module path understood by the Javet module resolver, e.g. `"@core/pages/Dashboard"`.
+     * @param path  Module path understood by the Javet module resolver, e.g. `"vt:@core/pages/Dashboard"`.
      */
     fun navigateTo(path: String) {
         componentPath = path
