@@ -14,6 +14,9 @@ import li.kelp.vuetale.app.AppType
 import li.kelp.vuetale.app.PlayerUiManager
 import li.kelp.vuetale.hytale.VuetaleUIPage
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import javax.annotation.Nonnull
 
 
@@ -35,12 +38,25 @@ class TestCommand : AbstractPlayerCommand("vuetale", "Super test command!") {
 //            )
 //        }
 
-        PlayerUiManager.openPage(
+        val ui = PlayerUiManager.openPage(
             playerRef,
             ref as Ref<EntityStore>,
             store as Store<EntityStore>,
             "core",
             "TestPage"
         )
+
+        class Abc(val a: String, val b: Int)
+
+        ui.setData("test", "Hello this is a test!")
+        ui.setData("test2", Abc("abc", 123))
+
+        val counter = AtomicInteger(0)
+        val scheduler = Executors.newSingleThreadScheduledExecutor()
+        scheduler.scheduleAtFixedRate({
+            val value = counter.incrementAndGet()
+            ui.setData("counter", value)
+        }, 0, 1, TimeUnit.SECONDS)
+
     }
 }

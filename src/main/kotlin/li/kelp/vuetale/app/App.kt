@@ -15,6 +15,9 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
 
     val dependencies: MutableMap<String, Dependency> = mutableMapOf()
 
+    /** Persisted copy of every setData call – re-pushed to V8 after a hot-reload. */
+    private val dataCache: MutableMap<String, Any?> = LinkedHashMap()
+
     var isMounted = false
         private set
 
@@ -78,9 +81,11 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
     }
 
     private fun createApp() {
-        if (componentPath != null) {
-            logger.info("Creating app '${getId()}' with component: $componentPath")
-            getEngine().preloadComponent(componentPath!!)
+        val resolvedPath = componentPath?.removePrefix("vt:")
+        if (resolvedPath != null) {
+            componentPath = resolvedPath
+            logger.info("Creating app '${getId()}' with component: $resolvedPath")
+            getEngine().preloadComponent(resolvedPath)
         } else {
             logger.warning("Creating app '${getId()}' with NO component path – navigateTo must be called before anything renders")
         }
@@ -126,6 +131,15 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
     internal fun reinitializeInEngine() {
         createApp()
         updateReference()
+        // Re-push all cached data so Vue sees the same state after a hot reload.
+        if (dataCache.isNotEmpty()) {
+            val engine = getEngine()
+            dataCache.forEach { (key, value) ->
+                engine.runOnV8Thread {
+                    engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+                }
+            }
+        }
     }
 
     private fun getDependencyKey(origin: String): String {
@@ -152,6 +166,23 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
 
     fun getDependencyName(origin: String) = dependencies[origin]?.name
 
+    /**
+     * Push a reactive data value to the Vue side for this app.
+     * The value is immediately available via `useData("key")` in any component rendered
+     * by this app.  Calling this method again with the same [key] updates the existing
+     * reactive ref in-place, triggering Vue's reactivity system automatically.
+     *
+     * @param key   The string key used in `useData("key")` on the Vue side.
+     * @param value Any JSON-serialisable JVM value (String, Number, Boolean, null).
+     */
+    fun setData(key: String, value: Any?) {
+        dataCache[key] = value
+        val engine = getEngine()
+        engine.runOnV8Thread {
+            engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+        }
+    }
+
     fun mount() {
         if (isMounted) {
             logger.warning("Tried to mount but App '${getId()}' is already mounted")
@@ -169,11 +200,12 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
      * @param path  Module path understood by the Javet module resolver, e.g. `"vt:@core/pages/Dashboard"`.
      */
     fun navigateTo(path: String) {
-        componentPath = path
+        val resolvedPath = path.removePrefix("vt:")
+        componentPath = resolvedPath
         val engine = getEngine()
-        engine.preloadComponent(path)
+        engine.preloadComponent(resolvedPath)
         engine.runOnV8Thread {
-            engine.loaderCtx.invoke<V8Value>("navigateTo", getId(), path).close()
+            engine.loaderCtx.invoke<V8Value>("navigateTo", getId(), resolvedPath).close()
         }
     }
 

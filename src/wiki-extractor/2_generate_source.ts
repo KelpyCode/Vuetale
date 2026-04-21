@@ -89,6 +89,14 @@ type C<T> = DefineComponent<T, {}, {}, {}, {}, {}, {}>`)
             code += `\n    ${toLowerCamelCase(prop.name)}?: ${propType};`
         }
 
+        const callbacks = uiTypes.eventCallbacks[key as keyof typeof uiTypes.eventCallbacks] ?? []
+        for (const cb of callbacks) {
+            if (cb.description) {
+                code += `\n    /** ${cb.description} */`
+            }
+            code += `\n    on${cb.name}?: (...args: any[]) => void;`
+        }
+
         code += `\n  };`
         src.push(code)
 

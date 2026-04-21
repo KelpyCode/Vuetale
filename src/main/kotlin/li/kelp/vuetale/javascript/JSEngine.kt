@@ -286,8 +286,10 @@ class JSEngine : AutoCloseable {
      * The static `import` goes through [ClasspathModuleResolver] as normal.
      *
      * Must be called **before** [App.createApp] or [App.navigateTo] for the given path.
+     * Must be called **before** [App.createApp] or [App.navigateTo] for the given path.
+     * Must be called **before** [App.createApp] or [App.navigateTo] for the given path.
      *
-     * @param aliasPath  Module alias path, e.g. `"vt:@core/pages/Dashboard"`.
+     * @param aliasPath  Module alias path, e.g. `"@core/pages/Dashboard"`.
      */
     fun preloadComponent(aliasPath: String) {
         runOnV8Thread {
@@ -349,8 +351,8 @@ class JSEngine : AutoCloseable {
             val source = loadSourceText("vuetale/$alias/manifest.json")
                 ?: return@getOrPut ManifestData(emptyList(), emptyList(), emptyList())
             ManifestData(
-                pages      = parseJsonStringArray(source, "pages"),
-                huds       = parseJsonStringArray(source, "huds"),
+                pages = parseJsonStringArray(source, "pages"),
+                huds = parseJsonStringArray(source, "huds"),
                 components = parseJsonStringArray(source, "components"),
             )
         }
@@ -365,12 +367,14 @@ class JSEngine : AutoCloseable {
     private fun resolveModulePath(resourceName: String, referrerPath: String?): String {
         // @alias/some/path  →  vuetale/<alias>/some/path.js
         // @alias/Name       →  shorthand: look up manifest to find pages/huds/components/Name.vue.js
-        if (resourceName.startsWith("vt:@")) {
-            val withoutAt = resourceName.removePrefix("vt:@")
+        // @alias/some/path  →  vuetale/<alias>/some/path.js
+        // @alias/Name       →  shorthand: look up manifest to find pages/huds/components/Name.vue.js
+        if (resourceName.startsWith("@")) {
+            val withoutAt = resourceName.removePrefix("@")
             val slash = withoutAt.indexOf('/')
             if (slash > 0) {
                 val alias = withoutAt.substring(0, slash)
-                val rest  = withoutAt.substring(slash + 1)
+                val rest = withoutAt.substring(slash + 1)
 
                 // Bare name (no sub-path) – try manifest lookup first
                 if (!rest.contains('/')) {

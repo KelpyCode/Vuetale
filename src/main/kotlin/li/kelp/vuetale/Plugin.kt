@@ -7,7 +7,6 @@ import li.kelp.vuetale.app.AppType
 import li.kelp.vuetale.commands.TestCommand
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.javascript.ModuleRegistry
-
 class Plugin(init: JavaPluginInit) : JavaPlugin(init) {
 
     /** Captured during setup so shutdown can close without re-initializing. */
@@ -15,13 +14,12 @@ class Plugin(init: JavaPluginInit) : JavaPlugin(init) {
 
     override fun setup() {
         logger.atInfo().log("Hello World!")
-
+        //val app = AppManager.createApp("test", AppType.Page)
+        // JSEngine.instance is initialised lazily the first time App accesses it.
         // Register this JAR's resources under the 'vt:@core' alias so other mods
         // can import from 'vt:@core/components/...' etc.
         ModuleRegistry.registerModule("core", Plugin::class.java)
 
-        //val app = AppManager.createApp("test", AppType.Page)
-        // JSEngine.instance is initialised lazily the first time App accesses it.
         // Capture it here so we can close it on shutdown.
         //jsEngine = JSEngine.instance
 

@@ -34,11 +34,33 @@ class PlayerUi internal constructor(
 
     /** Currently open page instance, if any. */
     var page: VuetaleUIPage? = null
-        internal set
+        internal set(value) {
+            field = value
+            if (value != null) flushPendingPageData(value.app)
+        }
 
     /** Currently active HUD instance, if any. */
     var hud: VuetaleUIHud? = null
-        internal set
+        internal set(value) {
+            field = value
+            if (value != null) flushPendingHudData(value.app)
+        }
+
+    // Buffers for setData/setHudData calls that arrive before the page/hud app is created.
+    private val pendingPageData: MutableMap<String, Any?> = LinkedHashMap()
+    private val pendingHudData: MutableMap<String, Any?> = LinkedHashMap()
+
+    private fun flushPendingPageData(app: App) {
+        if (pendingPageData.isEmpty()) return
+        pendingPageData.forEach { (k, v) -> app.setData(k, v) }
+        pendingPageData.clear()
+    }
+
+    private fun flushPendingHudData(app: App) {
+        if (pendingHudData.isEmpty()) return
+        pendingHudData.forEach { (k, v) -> app.setData(k, v) }
+        pendingHudData.clear()
+    }
 
     // ── Page API ───────────────────────────────────────────────────────────
 
@@ -51,7 +73,7 @@ class PlayerUi internal constructor(
     fun openPage(
         componentPath: String,
         lifetime: CustomPageLifetime = CustomPageLifetime.CanDismiss,
-    ) {
+    ): PlayerUi {
         val pRef = requirePlayerRef()
         val (ref, store, player) = requirePlayerContext()
         CompletableFuture.runAsync {
@@ -59,6 +81,7 @@ class PlayerUi internal constructor(
             page = newPage
             player.pageManager.openCustomPage(ref, store, newPage)
         }
+        return this
     }
 
     /**
@@ -93,13 +116,14 @@ class PlayerUi internal constructor(
      *
      * @param componentPath  Module path of the Vue component, e.g. `"vt:@core/huds/ActionBar"`.
      */
-    fun openHud(componentPath: String) {
+    fun openHud(componentPath: String): PlayerUi {
         val (ref, store, player) = requirePlayerContext()
         CompletableFuture.runAsync {
             val newHud = VuetaleUIHud(requirePlayerRef(), ownerId, componentPath)
             hud = newHud
             player.hudManager.setCustomHud(requirePlayerRef(), newHud)
         }
+        return this
     }
 
     /** Navigate the active HUD to a different component without hiding it. */
@@ -117,6 +141,38 @@ class PlayerUi internal constructor(
             player.hudManager.resetHud(requirePlayerRef())
         }
         hud = null
+    }
+
+    // ── Data API ───────────────────────────────────────────────────────────
+
+    /**
+     * Push a reactive data value to the Vue side for the currently open page.
+     * If the page is not yet open (e.g. called right after [openPage] before the async
+     * completes), the value is buffered and flushed automatically once the app is ready.
+     *
+     * @param key   The string key used in `useData("key")` on the Vue side.
+     * @param value Any JSON-serialisable JVM value (String, Number, Boolean, data class, null).
+     */
+    fun setData(key: String, value: Any?) {
+        val app = page?.app
+        if (app != null) {
+            app.setData(key, value)
+        } else {
+            pendingPageData[key] = value
+        }
+    }
+
+    /**
+     * Push a reactive data value to the Vue side for the currently active HUD.
+     * Buffered if the HUD is not yet active.
+     */
+    fun setHudData(key: String, value: Any?) {
+        val app = hud?.app
+        if (app != null) {
+            app.setData(key, value)
+        } else {
+            pendingHudData[key] = value
+        }
     }
 
     // ── Internal ───────────────────────────────────────────────────────────
@@ -189,8 +245,8 @@ object PlayerUiManager {
         store: Store<EntityStore>,
         componentPath: String,
         lifetime: CustomPageLifetime = CustomPageLifetime.CanDismiss,
-    ) {
-        getOrCreate(playerRef.uuid, playerRef, ref, store).openPage(componentPath, lifetime)
+    ): PlayerUi {
+        return getOrCreate(playerRef.uuid, playerRef, ref, store).openPage(componentPath, lifetime)
     }
 
     fun openPage(
@@ -200,13 +256,13 @@ object PlayerUiManager {
         module: String,
         page: String,
         lifetime: CustomPageLifetime = CustomPageLifetime.CanDismiss,
-    ) {
-        var componentPath = "vt:@$module/pages/$page"
+    ): PlayerUi {
+        var componentPath = "@$module/pages/$page"
         if (!componentPath.endsWith(".vue.js")) {
             componentPath += ".vue.js"
         }
 
-        getOrCreate(playerRef.uuid, playerRef, ref, store).openPage(componentPath, lifetime)
+        return getOrCreate(playerRef.uuid, playerRef, ref, store).openPage(componentPath, lifetime)
     }
 
     /** Show a HUD for the player, creating the [PlayerUi] if needed. */
@@ -215,8 +271,8 @@ object PlayerUiManager {
         ref: Ref<EntityStore>,
         store: Store<EntityStore>,
         componentPath: String,
-    ) {
-        getOrCreate(playerRef.uuid, playerRef, ref, store).openHud(componentPath)
+    ): PlayerUi {
+        return getOrCreate(playerRef.uuid, playerRef, ref, store).openHud(componentPath)
     }
 
     fun openHud(
@@ -226,7 +282,7 @@ object PlayerUiManager {
         module: String,
         hud: String,
     ) {
-        var componentPath = "vt:@$module/huds/$hud"
+        var componentPath = "@$module/huds/$hud"
         if (!componentPath.endsWith(".vue.js")) {
             componentPath += ".vue.js"
         }
