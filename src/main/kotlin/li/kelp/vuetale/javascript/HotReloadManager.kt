@@ -41,6 +41,9 @@ object HotReloadManager {
     @Volatile private var debounceTask: ScheduledFuture<*>? = null
     @Volatile private var started = false
 
+    /** Canonical absolute paths of every resources directory currently being watched. */
+    private val watchedPaths = mutableSetOf<String>()
+
     /** Absolute paths of every .js file that changed during the current debounce window. */
     private val pendingChanges = mutableSetOf<String>()
     private val pendingChangesLock = Any()
@@ -50,19 +53,46 @@ object HotReloadManager {
     /**
      * Start the file watcher if dev mode is enabled and not yet started.
      * Safe to call on every [JSEngine] init – subsequent calls are no-ops.
+     *
+     * Also starts watchers for any per-alias dev paths already registered in [ModuleRegistry].
      */
     fun startIfNeeded() {
         if (!DevConfig.isDevMode || started) return
         started = true
 
-        val path = DevConfig.devResourcesPath!!.resolve("")
-        if (!Files.isDirectory(path)) {
+        val path = DevConfig.devResourcesPath!!.toAbsolutePath().normalize()
+        if (Files.isDirectory(path)) {
+            watchedPaths.add(path.toString())
+            startWatcherThread(path)
+            logger.info("Hot reload watching (core): $path")
+        } else {
             logger.warning("Hot reload watch path does not exist: $path – watching skipped")
-            return
         }
 
-        startWatcherThread(path)
-        logger.info("Hot reload watching: $path")
+        // Watch any plugin alias dev paths already registered.
+        ModuleRegistry.entries()
+            .mapNotNull { it.devResourcesPath }
+            .distinct()
+            .filter { Files.isDirectory(it) }
+            .forEach { watchPluginPath(it) }
+    }
+
+    /**
+     * Start watching a plugin's dev resources path.
+     * Can be called after [startIfNeeded] when a plugin calls
+     * [ModuleRegistry.registerModule] with a dev path at a later point.
+     * No-op if dev mode is disabled or the path is already being watched.
+     */
+    fun watchPluginPath(path: Path) {
+        if (!DevConfig.isDevMode) return
+        val canonical = path.toAbsolutePath().normalize()
+        if (!watchedPaths.add(canonical.toString())) return   // already watching
+        if (!Files.isDirectory(canonical)) {
+            logger.warning("Plugin hot reload watch path does not exist: $canonical – watching skipped")
+            return
+        }
+        startWatcherThread(canonical)
+        logger.info("Hot reload watching (plugin): $canonical")
     }
 
     // ── File watching ──────────────────────────────────────────────────────
@@ -144,14 +174,31 @@ object HotReloadManager {
 
     // ── Hot reload ─────────────────────────────────────────────────────────
 
-    /** Convert an absolute filesystem path to a classpath-relative path, or null if outside devResourcesPath. */
+    /**
+     * Convert an absolute filesystem path to a classpath-relative path.
+     * Checks the core [DevConfig.devResourcesPath] first, then all plugin dev paths
+     * registered in [ModuleRegistry].
+     * Returns `null` if the path does not fall under any known resources root.
+     */
     private fun toClasspathPath(absPath: String): String? {
-        val resourcesPath = DevConfig.devResourcesPath ?: return null
-        return try {
-            resourcesPath.relativize(Path.of(absPath)).toString().replace('\\', '/')
-        } catch (_: Exception) {
-            null
+        val target = Path.of(absPath)
+        // Core resources path
+        DevConfig.devResourcesPath?.let { root ->
+            runCatching { root.relativize(target).toString().replace('\\', '/') }
+                .getOrNull()
+                ?.takeIf { !it.startsWith("..") }
+                ?.let { return it }
         }
+        // Per-alias plugin dev paths
+        ModuleRegistry.entries().forEach { entry ->
+            entry.devResourcesPath?.let { root ->
+                runCatching { root.relativize(target).toString().replace('\\', '/') }
+                    .getOrNull()
+                    ?.takeIf { !it.startsWith("..") }
+                    ?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun performHotReload() {

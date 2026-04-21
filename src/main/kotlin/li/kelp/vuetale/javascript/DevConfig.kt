@@ -21,11 +21,14 @@ import java.util.logging.Logger
  * All module paths passed to `loadSourceText` are relative to this root
  * (e.g. `"vuetale/core/loader.js"`, `"vue.dev.js"`).
  *
- * Example `vuetale-dev.properties`:
+ * Per-plugin aliases can register their own live Vite output directories:
  * ```
- * vuetale.devResourcesPath=C:/Users/you/Projects/Hytale/Vuetale/src/main/resources
+ * vuetale.devResourcesPath=C:/Projects/Vuetale/src/main/resources
+ * vuetale.devResourcesPath.myMod=C:/Projects/MyMod/src/main/resources
  * vuetale.devVue=true
  * ```
+ * When [ModuleRegistry.registerModule] is called for `"myMod"`, it automatically
+ * picks up the path above so no code change is needed in the plugin.
  */
 object DevConfig {
     private val logger = Logger.getLogger("DevConfig")
@@ -39,9 +42,14 @@ object DevConfig {
     val isDevMode: Boolean get() = devResourcesPath != null
 
     /**
+     * Per-alias dev resources paths read from `vuetale.devResourcesPath.<alias>` entries.
+     * Populated even when [devResourcesPath] is null (but [isDevMode] must be true for
+     * these paths to be consulted by [JSEngine]).
+     */
+    val aliasDevResourcesPaths: Map<String, Path>
+
+    /**
      * Whether to load the Vue dev IIFE (`vue.dev.js`) instead of the production `vue.js`.
-     * The dev build enables `__VUE_HMR_RUNTIME__` which powers partial component hot-reload.
-     * Defaults to `true` when [isDevMode] is active; can be overridden via `vuetale.devVue`.
      */
     val useDevVue: Boolean
 
@@ -54,37 +62,61 @@ object DevConfig {
 
     init {
         devResourcesPath = readDevResourcesPath()
+        aliasDevResourcesPaths = readAliasDevResourcesPaths()
         useDevVue = readUseDevVue()
         if (isDevMode) {
             logger.info("Dev mode ENABLED – reading JS from filesystem: $devResourcesPath")
+            if (aliasDevResourcesPaths.isNotEmpty()) {
+                aliasDevResourcesPaths.forEach { (alias, path) ->
+                    logger.info("Dev mode – plugin alias '@$alias' → $path")
+                }
+            }
             logger.info("Dev mode – Vue dev build: ${if (useDevVue) "enabled (vue.dev.js)" else "disabled (vue.js)"}")
         }
     }
 
     private fun readDevResourcesPath(): Path? {
-        // 1. JVM system property
         System.getProperty("vuetale.devResourcesPath")?.takeIf { it.isNotBlank() }
             ?.let { return Path.of(it) }
-
-        // 2. vuetale-dev.properties in the working directory
         props.getProperty("vuetale.devResourcesPath")?.takeIf { it.isNotBlank() }
             ?.let { return Path.of(it) }
-
         return null
     }
 
+    /**
+     * Collect all `vuetale.devResourcesPath.<alias>` entries from system properties
+     * and the properties file (system properties take precedence per alias).
+     */
+    private fun readAliasDevResourcesPaths(): Map<String, Path> {
+        val result = mutableMapOf<String, Path>()
+        val prefix = "vuetale.devResourcesPath."
+
+        // From properties file first (lower priority)
+        props.stringPropertyNames()
+            .filter { it.startsWith(prefix) }
+            .forEach { key ->
+                val alias = key.removePrefix(prefix).takeIf { it.isNotBlank() } ?: return@forEach
+                val value = props.getProperty(key)?.takeIf { it.isNotBlank() } ?: return@forEach
+                result[alias] = Path.of(value)
+            }
+
+        // System properties override (higher priority)
+        System.getProperties().stringPropertyNames()
+            .filter { it.startsWith(prefix) }
+            .forEach { key ->
+                val alias = key.removePrefix(prefix).takeIf { it.isNotBlank() } ?: return@forEach
+                val value = System.getProperty(key)?.takeIf { it.isNotBlank() } ?: return@forEach
+                result[alias] = Path.of(value)
+            }
+
+        return result
+    }
+
     private fun readUseDevVue(): Boolean {
-        // JVM system property overrides all
         System.getProperty("vuetale.devVue")?.takeIf { it.isNotBlank() }
             ?.let { return it.trim().lowercase() != "false" }
-
-        // Properties file
         props.getProperty("vuetale.devVue")?.takeIf { it.isNotBlank() }
             ?.let { return it.trim().lowercase() != "false" }
-
-        // Default: use dev Vue build whenever dev mode is active
         return isDevMode
     }
 }
-
-

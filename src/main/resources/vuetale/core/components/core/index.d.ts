@@ -1,0 +1,83 @@
+export declare const Core: {
+    TextField: import('vue').DefineComponent<{
+        anchor?: import('vuetale/types/elements').Anchor;
+        autoFocus?: boolean;
+        autoScrollDown?: boolean;
+        autoSelectAll?: boolean;
+        background?: import('vuetale/types/elements').PatchStyle | string;
+        contentHeight?: number;
+        contentWidth?: number;
+        decoration?: import('vuetale/types/elements').InputFieldDecorationStyle;
+        flexWeight?: number;
+        hitTestVisible?: boolean;
+        isReadOnly?: boolean;
+        keepScrollPosition?: boolean;
+        maskTexturePath?: string;
+        maxLength?: number;
+        mouseWheelScrollBehaviour?: import('vuetale/types/elements').MouseWheelScrollBehaviourType;
+        outlineColor?: string;
+        outlineSize?: number;
+        overscroll?: boolean;
+        padding?: import('vuetale/types/elements').Padding;
+        passwordChar?: string;
+        placeholderStyle?: import('vuetale/types/elements').InputFieldStyle;
+        placeholderText?: string;
+        elStyle?: import('vuetale/types/elements').InputFieldStyle;
+        textTooltipShowDelay?: number;
+        textTooltipStyle?: import('vuetale/types/elements').TextTooltipStyle;
+        tooltipText?: string;
+        tooltipTextSpans?: Array<import('vuetale/types/elements').LabelSpan>;
+        value?: string;
+        visible?: boolean;
+        onDismissing?: (...args: any[]) => void;
+        onFocusGained?: (...args: any[]) => void;
+        onFocusLost?: (...args: any[]) => void;
+        onRightClicking?: (...args: any[]) => void;
+        onValidating?: (...args: any[]) => void;
+        onValueChanged?: (...args: any[]) => void;
+    } & {
+        modelValue?: string;
+    }, {}, {}, {}, {}, import('vue').ComponentOptionsMixin, import('vue').ComponentOptionsMixin, {
+        "update:modelValue": (...args: any[]) => void;
+    }, string, import('vue').PublicProps, Readonly<{
+        anchor?: import('vuetale/types/elements').Anchor;
+        autoFocus?: boolean;
+        autoScrollDown?: boolean;
+        autoSelectAll?: boolean;
+        background?: import('vuetale/types/elements').PatchStyle | string;
+        contentHeight?: number;
+        contentWidth?: number;
+        decoration?: import('vuetale/types/elements').InputFieldDecorationStyle;
+        flexWeight?: number;
+        hitTestVisible?: boolean;
+        isReadOnly?: boolean;
+        keepScrollPosition?: boolean;
+        maskTexturePath?: string;
+        maxLength?: number;
+        mouseWheelScrollBehaviour?: import('vuetale/types/elements').MouseWheelScrollBehaviourType;
+        outlineColor?: string;
+        outlineSize?: number;
+        overscroll?: boolean;
+        padding?: import('vuetale/types/elements').Padding;
+        passwordChar?: string;
+        placeholderStyle?: import('vuetale/types/elements').InputFieldStyle;
+        placeholderText?: string;
+        elStyle?: import('vuetale/types/elements').InputFieldStyle;
+        textTooltipShowDelay?: number;
+        textTooltipStyle?: import('vuetale/types/elements').TextTooltipStyle;
+        tooltipText?: string;
+        tooltipTextSpans?: Array<import('vuetale/types/elements').LabelSpan>;
+        value?: string;
+        visible?: boolean;
+        onDismissing?: (...args: any[]) => void;
+        onFocusGained?: (...args: any[]) => void;
+        onFocusLost?: (...args: any[]) => void;
+        onRightClicking?: (...args: any[]) => void;
+        onValidating?: (...args: any[]) => void;
+        onValueChanged?: (...args: any[]) => void;
+    } & {
+        modelValue?: string;
+    }> & Readonly<{
+        "onUpdate:modelValue"?: ((...args: any[]) => any) | undefined;
+    }>, {}, {}, {}, {}, string, import('vue').ComponentProvideOptions, false, {}, any>;
+};

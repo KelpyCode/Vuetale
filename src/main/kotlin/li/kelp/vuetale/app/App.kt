@@ -85,7 +85,14 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
         if (resolvedPath != null) {
             componentPath = resolvedPath
             logger.info("Creating app '${getId()}' with component: $resolvedPath")
-            getEngine().preloadComponent(resolvedPath)
+            try {
+                getEngine().preloadComponent(resolvedPath)
+            } catch (e: Exception) {
+                val chain = generateSequence(e as Throwable) { it.cause }
+                    .joinToString(" → ") { "${it.javaClass.simpleName}: ${it.message}" }
+                logger.warning("Failed to preload component '$resolvedPath': $chain")
+                throw e
+            }
         } else {
             logger.warning("Creating app '${getId()}' with NO component path – navigateTo must be called before anything renders")
         }

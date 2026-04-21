@@ -215,9 +215,9 @@ class JSEngine : AutoCloseable {
 
         // Load Vue as a plain IIFE script -> sets globalThis.Vue.
         // In dev mode with useDevVue=true, prefer vue.dev.js (full warnings + __VUE_HMR_RUNTIME__).
-        val vueIife = (if (DevConfig.useDevVue) loadSourceText("vue.dev.js") else null)
-            ?: loadSourceText("vue.js")
-            ?: error("vue.js not found on classpath or filesystem")
+        val vueIife = (if (DevConfig.useDevVue) loadClasspathText("vue.dev.js") else null)
+            ?: loadClasspathText("vue.js")
+            ?: error("vue.js not found on classpath")
         v8Runtime.getExecutor(vueIife).executeVoid()
         v8Runtime.getExecutor("if (typeof Vue !== 'undefined') globalThis.Vue = Vue;").executeVoid()
 
@@ -320,17 +320,28 @@ class JSEngine : AutoCloseable {
             // cannot use identity (IdentityHashMap); resourceName is stable.
             val referrerPath = v8ModuleReferrer?.resourceName?.let { modulePathIndex[it] }
             val resolvedPath = resolveModulePath(resourceName, referrerPath)
-            return moduleCache.getOrPut(resolvedPath) {
-                val source = loadSourceText(resolvedPath)
-                    ?: run {
-                        logger.warning("ES module not found: $resolvedPath (imported as '$resourceName'${if (referrerPath != null) " from '$referrerPath'" else ""})")
-                        error("ES module not found: $resolvedPath (imported as '$resourceName')")
-                    }
-                val fakeResourceName = makeResourceName(resolvedPath)
+            // Try the resolved path, then fall back to <path without .js>/index.js
+            // to support directory imports (e.g. @core/components/core → components/core/index.js).
+            val (effectivePath, source) = run {
+                val direct = loadSourceText(resolvedPath)
+                if (direct != null) return@run resolvedPath to direct
+                if (resolvedPath.endsWith(".js")) {
+                    val indexPath = resolvedPath.removeSuffix(".js") + "/index.js"
+                    val indexSrc = loadSourceText(indexPath)
+                    if (indexSrc != null) return@run indexPath to indexSrc
+                }
+                null to null
+            }
+            if (effectivePath == null || source == null) {
+                logger.warning("ES module not found: $resolvedPath (imported as '$resourceName'${if (referrerPath != null) " from '$referrerPath'" else ""})")
+                error("ES module not found: $resolvedPath (imported as '$resourceName')")
+            }
+            return moduleCache.getOrPut(effectivePath) {
+                val fakeResourceName = makeResourceName(effectivePath)
                 val module = v8Runtime.getExecutor(source)
                     .setResourceName(fakeResourceName)
                     .compileV8Module()
-                modulePathIndex[fakeResourceName] = resolvedPath
+                modulePathIndex[fakeResourceName] = effectivePath
                 module
             }
         }
@@ -365,6 +376,8 @@ class JSEngine : AutoCloseable {
     }
 
     private fun resolveModulePath(resourceName: String, referrerPath: String?): String {
+        // Strip the optional "vt:" scheme prefix used in Vue component imports.
+        val resourceName = resourceName.removePrefix("vt:")
         // @alias/some/path  →  vuetale/<alias>/some/path.js
         // @alias/Name       →  shorthand: look up manifest to find pages/huds/components/Name.vue.js
         // @alias/some/path  →  vuetale/<alias>/some/path.js
@@ -438,16 +451,20 @@ class JSEngine : AutoCloseable {
 
     /**
      * Load JS source for [path].
-     * In dev mode, the filesystem (`DevConfig.devResourcesPath / path`) is checked first
-     * so that Vite's watch-mode output is picked up without a Gradle build.
-     * Falls back to the classpath (JAR resources) when the file is not found on disk.
+     *
+     * Resolution order (first hit wins):
+     * 1. Main dev filesystem: `DevConfig.devResourcesPath / path` (Vuetale's own Vite output).
+     * 2. Per-alias dev filesystem: `ModuleRegistry` entry's `devResourcesPath / path` when the
+     *    path belongs to a plugin alias that registered a dev path (plugin's own Vite output).
+     * 3. Classpath / JAR resources via [loadClasspathText].
      */
     private fun loadSourceText(path: String): String? {
         if (DevConfig.isDevMode) {
             val fsFile = DevConfig.devResourcesPath!!.resolve(path).toFile()
-            if (fsFile.exists()) {
-                return fsFile.readText(Charsets.UTF_8)
-            }
+            if (fsFile.exists()) return fsFile.readText(Charsets.UTF_8)
+
+            // Check per-alias dev paths registered by third-party plugins.
+            ModuleRegistry.loadDevText(path)?.let { return it }
         }
         return loadClasspathText(path)
     }

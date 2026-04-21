@@ -1,0 +1,26 @@
+{
+  "name": "core",
+  "version": "1.0.0",
+  "description": "Vuetale core UI library",
+  "components": [
+    "App",
+    "Common",
+    "ErrorBoundary",
+    "HelloWorld",
+    "Test",
+    "core/TextField",
+    "core/index",
+    "ErrorBoundary.vue?vue&type=script&setup=true&lang",
+    "App.vue?vue&type=script&setup=true&lang",
+    "Test.vue?vue&type=script&setup=true&lang",
+    "HelloWorld.vue?vue&type=script&setup=true&lang",
+    "core/TextField.vue?vue&type=script&setup=true&lang"
+  ],
+  "pages": [
+    "HelpPage",
+    "TestPage",
+    "HelpPage.vue?vue&type=script&setup=true&lang",
+    "TestPage.vue?vue&type=script&setup=true&lang"
+  ],
+  "huds": []
+}
