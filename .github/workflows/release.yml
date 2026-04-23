@@ -30,7 +30,7 @@ jobs:
           ./gradlew shadowJar
 
       - name: Get version from tag
-        id: tag_version
+        id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
@@ -46,8 +46,8 @@ jobs:
           curseforge-token: ${{ secrets.CURSEFORGE_API_TOKEN }}
           
           files: build/libs/*-all.jar
-          name: Vuetale ${{ steps.tag_version.outputs.version }}
-          version: ${{ steps.tag_version.outputs.version }}
+          name: Vuetale ${{ steps.version.outputs.version }}
+          version: ${{ steps.version.outputs.version }}
           version-type: release
           
           java: |
