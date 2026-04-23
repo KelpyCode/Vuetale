@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "li.kelp"
-version = "1.0.8-preview"
+version = "1.0.12-preview"
 
 repositories {
     mavenCentral()
@@ -63,6 +63,69 @@ tasks.register<JavaExec>("runMain") {
     description = "Run li.kelp.vuetale.MainKt standalone (no Hytale server)"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("li.kelp.vuetale.MainKt")
+}
+
+// Distribution tasks
+tasks.register<Task>("prepareDistribution") {
+    group = "distribution"
+    description = "Prepare all artifacts for multi-platform distribution"
+    dependsOn("shadowJar")
+
+    doLast {
+        val distDir = file("build/distribution")
+        distDir.mkdirs()
+
+        // Copy shadow JAR
+        copy {
+            from("build/libs")
+            into(distDir)
+            include("*-all.jar")
+        }
+
+        // Generate plugin info JSON for Nitrado
+        val pluginInfoFile = file("$distDir/plugin-info.json")
+        pluginInfoFile.writeText(
+            """
+{
+    "name": "Vuetale",
+    "version": "${project.version}",
+    "description": "Modern Vue.js + TypeScript UI development for Hytale mods",
+    "author": "kelpli",
+    "main_jar": "Vuetale-${project.version}-all.jar",
+    "hytale_version": "release",
+    "minimum_hytale_version": "1.0.0",
+    "dependencies": {},
+    "website": "https://github.com/kelpli/Vuetale",
+    "source_code": "https://github.com/kelpli/Vuetale",
+    "discord": "https://discord.gg/affkepndn7",
+    "opencollective": "https://opencollective.com/vuetale",
+    "license": "MIT",
+    "tags": ["ui", "vue", "typescript", "framework", "components", "reactive"],
+    "screenshots": [],
+    "documentation": "https://github.com/kelpli/Vuetale/blob/main/README.md"
+}
+        """.trimIndent()
+        )
+
+        // Copy additional distribution files
+        copy {
+            from(rootDir)
+            into(distDir)
+            include("README.md", "CHANGELOG.md", "LICENSE")
+        }
+
+        println("Distribution artifacts prepared in build/distribution/")
+    }
+}
+
+tasks.register<Zip>("createDistributionZip") {
+    group = "distribution"
+    description = "Create a zip archive with all distribution artifacts"
+    dependsOn("prepareDistribution")
+
+    from("build/distribution")
+    archiveFileName.set("Vuetale-${project.version}-distribution.zip")
+    destinationDirectory.set(file("build/libs"))
 }
 
 kotlin {

@@ -1,13 +1,25 @@
 {
     "Group": "kelp.li",
     "Name": "Vuetale",
-    "Version": "1.0.5-preview",
+    "Version": "1.0.12-preview",
     "Main": "li.kelp.vuetale.Plugin",
-    "Description": "",
+    "Description": "Modern Vue.js + TypeScript UI development for Hytale mods. Build reactive, component-based UIs with full autocompletion and excellent tooling while staying fully compatible with Hytale's UI system.",
     "Authors": [
         
     ],
-    "Website": "",
+    "Website": "https://github.com/kelpli/Vuetale",
+    "SourceCode": "https://github.com/kelpli/Vuetale",
+    "Discord": "https://discord.gg/affkepndn7",
+    "OpenCollective": "https://opencollective.com/vuetale",
+    "License": "MIT",
+    "Tags": [
+        "ui",
+        "vue",
+        "typescript",
+        "framework",
+        "components",
+        "reactive"
+    ],
     "Dependencies": {
         
     },
