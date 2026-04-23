@@ -77,7 +77,7 @@ class VueBridge(
         return parent.children.getOrNull(idx + 1)
     }
 
-    fun insert(appId: String, child: Element?, parent: Any?) {
+    fun insert(appId: String, child: Element?, parent: Any?, anchor: Element? = null) {
         if (child == null) return
         val actualParent: ElementContainer? = when {
             parent is ElementContainer -> parent
@@ -90,8 +90,30 @@ class VueBridge(
             }
         }
         if (actualParent != null) {
-            if (actualParent.children.contains(child)) return
-            actualParent.appendChild(child)
+            val existingIdx = actualParent.children.indexOf(child)
+            val alreadyCorrect: Boolean = if (anchor != null) {
+                // Correct position = child is immediately before anchor
+                val anchorIdx = actualParent.children.indexOf(anchor)
+                anchorIdx >= 0 && existingIdx == anchorIdx - 1
+            } else {
+                // Correct position = child is already last
+                existingIdx >= 0 && existingIdx == actualParent.children.size - 1
+            }
+
+            if (alreadyCorrect) return  // No structural change, nothing to do
+
+            if (anchor != null) {
+                val anchorIdx = actualParent.children.indexOf(anchor)
+                if (anchorIdx >= 0) {
+                    actualParent.children.remove(child)
+                    val insertIdx = actualParent.children.indexOf(anchor) // re-query after removal
+                    actualParent.insertChild(child, insertIdx)
+                } else {
+                    actualParent.appendChild(child)
+                }
+            } else {
+                actualParent.appendChild(child)
+            }
             val app = AppManager.getApp(appId)
             if (app != null) {
                 val parentSelector = when {
@@ -100,6 +122,9 @@ class VueBridge(
                     else -> actualParent.buildUniqueSelector()
                 }
                 app.insertedElements.add(App.InsertedElement(child, parentSelector))
+                // A child being re-inserted at a different position is a structural change
+                // (order matters for Hytale's UI tree).
+                app.hasStructuralChanges = true
                 app.markDirty()
             }
         } else {
