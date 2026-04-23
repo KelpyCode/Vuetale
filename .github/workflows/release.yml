@@ -33,6 +33,10 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -49,12 +53,6 @@ jobs:
           name: Vuetale ${{ steps.version.outputs.version }}
           version: ${{ steps.version.outputs.version }}
           version-type: release
-          
-          loaders: |
-            hytale
-          
-          game-versions: |
-            1.0.0
           
           java: |
             21
