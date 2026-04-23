@@ -127,7 +127,7 @@ object HotReloadManager {
             keyToPath[key] = dir
         }
 
-        Files.walk(watchPath).filter { Files.isDirectory(it) }.forEach { registerDir(it) }
+        Files.walk(watchPath).use { stream -> stream.filter { Files.isDirectory(it) }.forEach { registerDir(it) } }
 
         while (true) {
             val key = try {

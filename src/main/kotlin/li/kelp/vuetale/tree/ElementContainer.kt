@@ -31,6 +31,14 @@ abstract class ElementContainer(tag: String) : Element(tag) {
     }
 
     fun appendChild(child: Element) {
+        val oldParent = child.parent
+        if (oldParent is ElementContainer) {
+            if (oldParent == this && children.contains(child)) {
+                // Already a child of this container, no action needed
+                return
+            }
+            oldParent.children.remove(child)
+        }
         children.add(child)
         child.parent = this
     }

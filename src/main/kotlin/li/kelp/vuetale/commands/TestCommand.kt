@@ -51,12 +51,5 @@ class TestCommand : AbstractPlayerCommand("vuetale", "Super test command!") {
         ui.setData("test", "Hello this is a test!")
         ui.setData("test2", Abc("abc", 123))
 
-        val counter = AtomicInteger(0)
-        val scheduler = Executors.newSingleThreadScheduledExecutor()
-        scheduler.scheduleAtFixedRate({
-            val value = counter.incrementAndGet()
-            ui.setData("counter", value)
-        }, 0, 1, TimeUnit.SECONDS)
-
     }
 }

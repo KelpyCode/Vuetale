@@ -1,7 +1,7 @@
 {
     "Group": "kelp.li",
     "Name": "Vuetale",
-    "Version": "1.0-SNAPSHOT",
+    "Version": "1.0.5-preview",
     "Main": "li.kelp.vuetale.Plugin",
     "Description": "",
     "Authors": [

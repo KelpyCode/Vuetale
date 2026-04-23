@@ -29,7 +29,7 @@ const R = { anchor: { Full: 1, Left: 0, Right: 0 } }, V = {
         content: d(() => [
           n("Group", V, [
             n("Group", null, [
-              n("Label", null, "dd " + r(a.value) + " | " + r(e(f)) + " " + r(e(h)?.a) + " " + r(e(x)), 1)
+              n("Label", null, r(a.value) + " | " + r(e(f)) + " " + r(e(h)?.a) + " " + r(e(x)), 1)
             ]),
             l[1] || (l[1] = n("TextField", null, null, -1)),
             u(e(_).TextButton, {

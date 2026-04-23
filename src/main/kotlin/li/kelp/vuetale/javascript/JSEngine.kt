@@ -132,10 +132,21 @@ class JSEngine : AutoCloseable {
      * flat filenames inside this pre-created temp directory, `chdir` always succeeds and
      * the log spam is eliminated while still giving every V8 module a unique identity string.
      *
-     * Example: `"vuetale/core/loader.js"` becomes `"(tmpdir)/vuetale-modules/vuetale-core-loader.js"`
+     * **Linux CWD fix:** Javet/Node.js invokes `uv_chdir()` at the native C++ level (not
+     * the JS `process.chdir` function) to change to this directory while compiling each
+     * module.  On Linux this is a real OS-level `chdir()` that affects the entire JVM
+     * process, breaking any relative-path file I/O made by the game server afterwards.
+     * To neutralise this, we point [moduleRootDir] at the JVM's original working directory
+     * (`System.getProperty("user.dir")`), so the native `chdir()` call is always a no-op
+     * (the process is already there).  `user.dir` is set once at JVM startup and is never
+     * updated by subsequent native `chdir()` calls, making it a stable anchor.
+     *
+     * Example: `"vuetale/core/loader.js"` becomes `"(user.dir)/g1-vuetale-core-loader.js"`
      */
     private val moduleRootDir: java.io.File by lazy {
-        java.io.File(System.getProperty("java.io.tmpdir"), "vuetale-modules")
+        // Must be the server's actual working directory so that Javet's native uv_chdir()
+        // call does not move us away from the directory Hytale resolves relative paths from.
+        java.io.File(System.getProperty("user.dir"))
             .also { it.mkdirs() }
     }
 
@@ -471,10 +482,11 @@ class JSEngine : AutoCloseable {
 
     private fun loadClasspathText(path: String): String? {
         val normalized = path.trimStart('/')
-        val loaders = listOf(
+        val loaders = listOfNotNull(
             Thread.currentThread().contextClassLoader,
-            JSEngine::class.java.classLoader
-        )
+            JSEngine::class.java.classLoader,
+            ClassLoader.getSystemClassLoader(),
+        ).distinct()
         for (loader in loaders) {
             loader?.getResource(normalized)?.let { url ->
                 return url.openStream().bufferedReader(Charsets.UTF_8).readText()

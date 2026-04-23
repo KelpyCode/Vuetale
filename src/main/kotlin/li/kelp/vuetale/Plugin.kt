@@ -7,6 +7,7 @@ import li.kelp.vuetale.app.AppType
 import li.kelp.vuetale.commands.TestCommand
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.javascript.ModuleRegistry
+
 class Plugin(init: JavaPluginInit) : JavaPlugin(init) {
 
     /** Captured during setup so shutdown can close without re-initializing. */

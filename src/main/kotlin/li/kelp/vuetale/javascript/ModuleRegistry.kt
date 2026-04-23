@@ -50,6 +50,7 @@ object ModuleRegistry {
      *
      * Safe to call multiple times with the same alias – the last registration wins.
      */
+    @JvmOverloads
     fun registerModule(alias: String, anchorClass: Class<*>, devResourcesPathOverride: Path? = null) {
         val loader = anchorClass.classLoader
             ?: ClassLoader.getSystemClassLoader()

@@ -22,7 +22,8 @@ import li.kelp.vuetale.tree.RootElement
 import li.kelp.vuetale.util.ReflectUtil
 import li.kelp.vuetale.util.StringUtil.capitalize
 import li.kelp.vuetale.util.StringUtil.fromKebabCaseToPascalCase
-import li.kelp.vuetale.validator.*import java.util.logging.Logger
+import li.kelp.vuetale.validator.*
+import java.util.logging.Logger
 
 class VueBridge(
     private val v8Runtime: V8Runtime,
@@ -89,6 +90,7 @@ class VueBridge(
             }
         }
         if (actualParent != null) {
+            if (actualParent.children.contains(child)) return
             actualParent.appendChild(child)
             val app = AppManager.getApp(appId)
             if (app != null) {
@@ -103,6 +105,7 @@ class VueBridge(
         } else {
             logger.warning("insert: could not resolve parent for child ${child.id}")
         }
+
     }
 
     fun remove(appId: String, element: Element?) {
