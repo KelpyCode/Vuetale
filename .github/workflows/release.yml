@@ -29,10 +29,34 @@ jobs:
           chmod +x gradlew
           ./gradlew shadowJar
 
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: build/libs/*-all.jar
           generate_release_notes: true
+
+      - name: Deploy to CurseForge
+        uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          curseforge-id: ${{ secrets.CURSEFORGE_PROJECT_ID }}
+          curseforge-token: ${{ secrets.CURSEFORGE_API_TOKEN }}
+          
+          files: build/libs/*-all.jar
+          name: Vuetale ${{ steps.version.outputs.version }}
+          version: ${{ steps.version.outputs.version }}
+          version-type: release
+          
+          loaders: |
+            hytale
+          
+          game-versions: |
+            1.0.0
+          
+          java: |
+            21
 
 
