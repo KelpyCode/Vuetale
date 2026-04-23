@@ -91,13 +91,15 @@ class VueBridge(
         }
         if (actualParent != null) {
             val existingIdx = actualParent.children.indexOf(child)
-            val alreadyCorrect: Boolean = if (anchor != null) {
+            val alreadyCorrect: Boolean = if (existingIdx < 0) {
+                false  // not in parent at all — must insert
+            } else if (anchor != null) {
                 // Correct position = child is immediately before anchor
                 val anchorIdx = actualParent.children.indexOf(anchor)
                 anchorIdx >= 0 && existingIdx == anchorIdx - 1
             } else {
                 // Correct position = child is already last
-                existingIdx >= 0 && existingIdx == actualParent.children.size - 1
+                existingIdx == actualParent.children.size - 1
             }
 
             if (alreadyCorrect) return  // No structural change, nothing to do
