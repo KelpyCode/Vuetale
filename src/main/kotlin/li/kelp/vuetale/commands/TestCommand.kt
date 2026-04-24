@@ -21,6 +21,7 @@ import javax.annotation.Nonnull
 
 
 class TestCommand : AbstractPlayerCommand("vuetale", "Super test command!") {
+
     protected override fun execute(
         @Nonnull commandContext: CommandContext,
         @Nonnull store: Store<EntityStore?>,
@@ -45,6 +46,7 @@ class TestCommand : AbstractPlayerCommand("vuetale", "Super test command!") {
             "core",
             "TestPage"
         )
+
 
         class Abc(val a: String, val b: Int)
 

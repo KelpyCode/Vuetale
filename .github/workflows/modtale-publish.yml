@@ -1,0 +1,166 @@
+name: Modtale Publish (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      artifact-id:
+        description: "The Maven artifact ID, e.g. nitrado-query"
+        type: string
+        required: true
+      version:
+        description: "The semver version string, e.g. 1.1.1-rc1+2026.02.19-1a311a592"
+        type: string
+        required: true
+      tag-name:
+        description: "The GitHub release tag name"
+        type: string
+        required: true
+      game-versions:
+        description: "Hytale game versions (comma-separated)"
+        type: string
+        default: "1.0-SNAPSHOT"
+    secrets:
+      MODTALE_API_KEY:
+        description: "Modtale API key for authentication"
+        required: false
+      MODTALE_PROJECT_ID:
+        description: "Modtale project ID"
+        required: false
+
+  workflow_dispatch:
+    inputs:
+      artifact-id:
+        description: "The Maven artifact ID, e.g. nitrado-query"
+        type: string
+        required: true
+      version:
+        description: "The semver version string, e.g. 1.1.1-rc1+2026.02.19-1a311a592"
+        type: string
+        required: true
+      tag-name:
+        description: "The GitHub release tag name"
+        type: string
+        required: true
+      game-versions:
+        description: "Hytale game versions (comma-separated)"
+        type: string
+        default: "1.0-SNAPSHOT"
+
+jobs:
+  publish-modtale:
+    if: ${{ github.repository != 'nitrado/hytale-plugin-workflows' }}
+    runs-on: ubuntu-latest
+    environment: publish-external
+    steps:
+      - name: Resolve tag and release channel
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # For workflow_call, use inputs.tag-name; for workflow_dispatch, use GITHUB_REF
+          if [[ -n "${{ inputs.tag-name }}" ]]; then
+            TAG_NAME="${{ inputs.tag-name }}"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          else
+            echo "ERROR: Must be triggered on a tag (current ref: $GITHUB_REF)"
+            exit 1
+          fi
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          
+          # Determine channel from GitHub release prerelease status
+          IS_PRERELEASE=$(gh api repos/${{ github.repository }}/releases/tags/$TAG_NAME --jq '.prerelease' 2>/dev/null || echo "false")
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            echo "channel=BETA" >> $GITHUB_OUTPUT
+            echo "GitHub release is a prerelease, using channel: BETA"
+          else
+            echo "channel=RELEASE" >> $GITHUB_OUTPUT
+            echo "GitHub release is stable, using channel: RELEASE"
+          fi
+
+      - name: Fetch changelog from release
+        id: changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${{ steps.resolve.outputs.tag_name }}"
+          
+          RELEASE_BODY=$(gh api repos/${{ github.repository }}/releases/tags/$TAG_NAME --jq '.body // empty' 2>/dev/null || echo "")
+          
+          if [[ -n "$RELEASE_BODY" ]]; then
+            {
+              echo 'changelog<<EOF'
+              echo "$RELEASE_BODY"
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
+          else
+            echo "changelog=Automated Build & Release from GitHub" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download jar from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${{ steps.resolve.outputs.tag_name }}"
+          JAR_NAME="${{ inputs.artifact-id }}-${{ inputs.version }}.jar"
+          
+          echo "Downloading jar from release: $JAR_NAME"
+          gh release download "$TAG_NAME" --repo "${{ github.repository }}" --pattern "$JAR_NAME" || {
+            echo "ERROR: Failed to download $JAR_NAME from release $TAG_NAME"
+            exit 1
+          }
+          
+          echo "Downloaded files:"
+          ls -la
+
+      - name: Upload to Modtale
+        env:
+          MODTALE_API_KEY: ${{ secrets.MODTALE_API_KEY }}
+          MODTALE_PROJECT_ID: ${{ secrets.MODTALE_PROJECT_ID }}
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+        run: |
+          # Check if secrets are configured
+          if [[ -z "$MODTALE_API_KEY" || -z "$MODTALE_PROJECT_ID" ]]; then
+            echo "Modtale secrets not configured, skipping publish"
+            exit 0
+          fi
+          
+          VERSION="${{ inputs.version }}"
+          JAR_PATH="./${{ inputs.artifact-id }}-${VERSION}.jar"
+          
+          if [[ ! -f "$JAR_PATH" ]]; then
+            echo "ERROR: Could not find jar file at $JAR_PATH"
+            ls -la
+            exit 1
+          fi
+          
+          echo "Found Jar: $JAR_PATH"
+          echo "Publishing Version: $VERSION"
+          echo "Game Versions: ${{ inputs.game-versions }}"
+          
+          # Write changelog to temp file to handle all special characters safely
+          CHANGELOG_FILE=$(mktemp)
+          printf '%s' "$CHANGELOG" > "$CHANGELOG_FILE"
+          trap 'rm -f "$CHANGELOG_FILE"' EXIT
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.modtale.net/api/v1/projects/$MODTALE_PROJECT_ID/versions" \
+            -H "X-MODTALE-KEY: $MODTALE_API_KEY" \
+            -F "file=@$JAR_PATH" \
+            -F "channel=${{ steps.resolve.outputs.channel }}" \
+            -F "versionNumber=$VERSION" \
+            -F "gameVersions=${{ inputs.game-versions }}" \
+            -F "changelog=<$CHANGELOG_FILE")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+          
+          if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+            echo "Successfully published to Modtale!"
+          else
+            echo "ERROR: Failed to publish to Modtale (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+

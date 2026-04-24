@@ -1,0 +1,527 @@
+# This file should be placed in: nitrado/hytale-plugin-workflows/.github/workflows/plugin-ci.yml
+# Then delete this file from this repository.
+
+name: Plugin CI (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        description: "Java version for building"
+        type: string
+        default: "25"
+      java-version-publish:
+        description: "Java version for Maven publishing"
+        type: string
+        default: "25"
+      artifact-retention-days:
+        description: "Number of days to retain build artifacts"
+        type: number
+        default: 7
+      manifest-path:
+        description: "Path to manifest.json file"
+        type: string
+        default: "src/main/resources/manifest.json"
+      checkout-ref:
+        description: "Git ref to checkout (tag, branch, SHA). Defaults to the triggering ref."
+        type: string
+        default: ""
+    secrets:
+      MAVEN_REPO_URL:
+        description: "Maven repository URL for dependencies"
+        required: false
+      MAVEN_USERNAME:
+        description: "Maven repository username"
+        required: false
+      MAVEN_PASSWORD:
+        description: "Maven repository password"
+        required: false
+      MAVEN_PUBLISH_URL:
+        description: "Maven repository URL for publishing"
+        required: false
+      MAVEN_PUBLISH_USERNAME:
+        description: "Maven publish username"
+        required: false
+      MAVEN_PUBLISH_PASSWORD:
+        description: "Maven publish password"
+        required: false
+      GCP_CREDENTIALS:
+        description: "GCP credentials JSON"
+        required: false
+      GCS_BUCKET:
+        description: "GCS bucket for artifact upload"
+        required: false
+      MODTALE_API_KEY:
+        description: "Modtale API key for authentication"
+        required: false
+      MODTALE_PROJECT_ID:
+        description: "Modtale project ID"
+        required: false
+      CURSEFORGE_TOKEN:
+        description: "CurseForge API token for authentication"
+        required: false
+      CURSEFORGE_PROJECT_ID:
+        description: "CurseForge project ID (numerical)"
+        required: false
+    outputs:
+      version:
+        description: "The resolved version"
+        value: ${{ jobs.build.outputs.version }}
+      artifact_id:
+        description: "The Maven artifact ID"
+        value: ${{ jobs.build.outputs.artifact_id }}
+      is_release:
+        description: "Whether this is a release build"
+        value: ${{ jobs.build.outputs.is_release }}
+      hytale_server_version:
+        description: "The Hytale Server version used for building"
+        value: ${{ jobs.build.outputs.hytale_server_version }}
+
+jobs:
+  build:
+    if: ${{ github.repository != 'nitrado/hytale-plugin-workflows' }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
+      is_release: ${{ steps.version.outputs.is_release }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      artifact_id: ${{ steps.artifact.outputs.artifact_id }}
+      hytale_server_version: ${{ steps.hytale-version.outputs.hytale_server_version }}
+      jar_name: ${{ steps.jar-name.outputs.jar_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || '' }}
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          # Semver regex with required leading v
+          SEMVER_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+
+          # Use checkout-ref if provided, otherwise fall back to GITHUB_REF
+          CHECKOUT_REF="${{ inputs.checkout-ref }}"
+          if [[ -n "$CHECKOUT_REF" ]]; then
+            EFFECTIVE_REF="refs/tags/$CHECKOUT_REF"
+            echo "Using checkout-ref as effective ref: $EFFECTIVE_REF"
+          else
+            EFFECTIVE_REF="$GITHUB_REF"
+          fi
+          
+          if [[ "$EFFECTIVE_REF" == refs/tags/* ]]; then
+            TAG_NAME="${EFFECTIVE_REF#refs/tags/}"
+            if [[ "$TAG_NAME" =~ $SEMVER_REGEX ]]; then
+              # Strip leading 'v' for maven/jar version
+              VERSION="${TAG_NAME#v}"
+              echo "version=$VERSION" >> $GITHUB_OUTPUT
+              echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+              echo "is_release=true" >> $GITHUB_OUTPUT
+              # Check for prerelease suffix (e.g., -rc1, -alpha1, -beta2)
+              if [[ "$VERSION" == *-* ]]; then
+                echo "is_prerelease=true" >> $GITHUB_OUTPUT
+                echo "Detected semver prerelease tag: $TAG_NAME (version: $VERSION)"
+              else
+                echo "is_prerelease=false" >> $GITHUB_OUTPUT
+                echo "Detected semver release tag: $TAG_NAME (version: $VERSION)"
+              fi
+            else
+              echo "Tag '$TAG_NAME' does not match required format (vX.Y.Z), using snapshot version"
+              COMMIT_HASH=$(git rev-parse --short HEAD)
+              echo "version=0.0.0-${COMMIT_HASH}" >> $GITHUB_OUTPUT
+              echo "is_release=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            COMMIT_HASH=$(git rev-parse --short HEAD)
+            echo "version=0.0.0-${COMMIT_HASH}" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "No tag detected, using snapshot version"
+          fi
+
+      - name: Fetch latest Hytale Server version
+        id: hytale-version
+        run: |
+          echo "Fetching latest Hytale Server version from maven.hytale.com..."
+          METADATA_URL="https://maven.hytale.com/release/com/hypixel/hytale/Server/maven-metadata.xml"
+          
+          METADATA=$(curl -sf "$METADATA_URL") || {
+            echo "ERROR: Failed to fetch maven-metadata.xml from $METADATA_URL"
+            exit 1
+          }
+          
+          # Extract the latest version from <release> tag
+          SERVER_VERSION=$(echo "$METADATA" | grep -oP '(?<=<release>)[^<]+' | head -1)
+          
+          if [[ -z "$SERVER_VERSION" ]]; then
+            echo "ERROR: Could not parse Hytale Server version from maven-metadata.xml"
+            echo "Metadata content:"
+            echo "$METADATA"
+            exit 1
+          fi
+          
+          echo "hytale_server_version=$SERVER_VERSION" >> $GITHUB_OUTPUT
+          echo "Detected Hytale Server version: $SERVER_VERSION"
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      - name: Determine artifact ID
+        id: artifact
+        run: |
+          ARTIFACT_ID=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
+          echo "artifact_id=$ARTIFACT_ID" >> $GITHUB_OUTPUT
+          echo "Detected artifact ID: $ARTIFACT_ID"
+
+      - name: Compute JAR name
+        id: jar-name
+        run: |
+          JAR_NAME="${{ steps.artifact.outputs.artifact_id }}-${{ steps.version.outputs.version }}+${{ steps.hytale-version.outputs.hytale_server_version }}"
+          echo "jar_name=$JAR_NAME" >> $GITHUB_OUTPUT
+          echo "JAR name: $JAR_NAME"
+
+      - name: Set up Maven settings.xml with additional repository
+        env:
+          MAVEN_REPO_URL: ${{ secrets.MAVEN_REPO_URL }}
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+        if: ${{ env.MAVEN_REPO_URL && env.MAVEN_USERNAME && env.MAVEN_PASSWORD }}
+        run: |
+          mkdir -p $HOME/.m2
+          echo "<settings>
+                  <servers>
+                    <server>
+                      <id>custom-repo</id>
+                      <username>$MAVEN_USERNAME</username>
+                      <password>$MAVEN_PASSWORD</password>
+                    </server>
+                  </servers>
+                  <profiles>
+                    <profile>
+                      <id>additional-repo</id>
+                      <repositories>
+                        <repository>
+                          <id>custom-repo</id>
+                          <url>$MAVEN_REPO_URL</url>
+                        </repository>
+                      </repositories>
+                    </profile>
+                  </profiles>
+                  <activeProfiles>
+                    <activeProfile>additional-repo</activeProfile>
+                  </activeProfiles>
+                </settings>" > $HOME/.m2/settings.xml
+
+      - name: Update manifest version for release
+        if: ${{ steps.version.outputs.is_release == 'true' }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SERVER_VERSION="${{ steps.hytale-version.outputs.hytale_server_version }}"
+          sed -i "s/\"Version\": \"[^\"]*\"/\"Version\": \"$VERSION\"/" ${{ inputs.manifest-path }}
+          sed -i "s/\"ServerVersion\": \"[^\"]*\"/\"ServerVersion\": \"$SERVER_VERSION\"/" ${{ inputs.manifest-path }}
+          echo "Updated manifest.json to version $VERSION"
+          cat ${{ inputs.manifest-path }}
+
+      - name: Build (clean package)
+        run: >
+          mvn -B -V
+          clean
+          package
+          -Drevision=${{ steps.version.outputs.version }}+${{ steps.hytale-version.outputs.hytale_server_version }}
+          -Dhytale.server.version=${{ steps.hytale-version.outputs.hytale_server_version }}
+
+      - name: Upload Build Artifacts
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-artifacts
+          path: |
+            target/${{ steps.artifact.outputs.artifact_id }}-*.jar
+            !target/original-*.jar
+          retention-days: ${{ inputs.artifact-retention-days }}
+
+  release:
+    needs: [build]
+    if: ${{ needs.build.outputs.is_release == 'true' && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || '' }}
+          fetch-depth: 0
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: build-artifacts
+
+      - name: Check for existing release
+        id: check-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${{ needs.build.outputs.tag_name }}"
+          if gh release view "$TAG_NAME" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "release_exists=true" >> $GITHUB_OUTPUT
+            echo "Existing release found for tag $TAG_NAME"
+          else
+            echo "release_exists=false" >> $GITHUB_OUTPUT
+            echo "No existing release for tag $TAG_NAME"
+          fi
+
+      - name: Generate changelog (new release only)
+        id: changelog
+        if: ${{ steps.check-release.outputs.release_exists == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${{ needs.build.outputs.tag_name }}"
+          IS_PRERELEASE="${{ needs.build.outputs.is_prerelease }}"
+          
+          echo "Generating changelog for tag: $TAG_NAME (prerelease: $IS_PRERELEASE)"
+          
+          # Get all semver tags sorted descending by commit date (most recent first)
+          # This ensures we get chronologically previous tags correctly
+          SEMVER_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          ALL_TAGS=$(git tag -l 'v*' --sort=-creatordate | while read tag; do
+            if [[ "$tag" =~ $SEMVER_REGEX ]]; then
+              echo "$tag"
+            fi
+          done)
+          
+          # Determine the comparison base tag
+          FULL_RELEASE_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          PREV_TAG=""
+          
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            # For prereleases: find previous release OR prerelease (any tag that came before)
+            for tag in $ALL_TAGS; do
+              if [[ "$tag" != "$TAG_NAME" ]]; then
+                PREV_TAG="$tag"
+                break
+              fi
+            done
+            echo "Prerelease: comparing against previous tag: $PREV_TAG"
+          else
+            # For full releases: find previous full release only (no prerelease suffix)
+            for tag in $ALL_TAGS; do
+              if [[ "$tag" != "$TAG_NAME" && "$tag" =~ $FULL_RELEASE_REGEX ]]; then
+                PREV_TAG="$tag"
+                break
+              fi
+            done
+            echo "Full release: comparing against previous full release: $PREV_TAG"
+          fi
+          
+          PREV_VERSION="${PREV_TAG#v}"
+          CURRENT_VERSION="${TAG_NAME#v}"
+
+          # Extract base version (without prerelease suffix) for prerelease notice
+          BASE_VERSION="${CURRENT_VERSION%%-*}"
+          
+          if [[ -z "$PREV_TAG" ]]; then
+            echo "No previous tag found, using initial commit"
+            HEADER="Changes since initial release:"
+            CHANGELOG=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+              -f tag_name="$TAG_NAME" \
+              --jq '.body')
+          else
+            HEADER=$'# Automatically Generated Changelog\nBelow are the changes since `'"${PREV_VERSION}"$'`.'
+            echo "Generating changelog from $PREV_TAG to $TAG_NAME"
+            CHANGELOG=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+              -f tag_name="$TAG_NAME" \
+              -f previous_tag_name="$PREV_TAG" \
+              --jq '.body')
+          fi
+          
+          # Add prerelease notice if applicable
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            PRERELEASE_NOTICE=$'**This is a Pre-Release**\nThe changes below will be included in the next full release, version `'"${BASE_VERSION}"$'`.\n\n'
+            HEADER="${PRERELEASE_NOTICE}${HEADER}"
+          fi
+          
+          if [[ -z "$CHANGELOG" ]]; then
+            CHANGELOG="No changes recorded"
+          fi
+          
+          # Combine header and changelog
+          FULL_CHANGELOG="${HEADER}
+          
+          ${CHANGELOG}"
+          
+          # Output using EOF delimiter for multi-line support
+          {
+            echo 'changelog<<EOF'
+            echo "$FULL_CHANGELOG"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+          
+          echo "Generated changelog:"
+          echo "$FULL_CHANGELOG"
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGELOG_BODY: ${{ steps.changelog.outputs.changelog }}
+        run: |
+          TAG_NAME="${{ needs.build.outputs.tag_name }}"
+          VERSION="${{ needs.build.outputs.version }}"
+          ARTIFACT_ID="${{ needs.build.outputs.artifact_id }}"
+          JAR_NAME="${{ needs.build.outputs.jar_name }}"
+          RELEASE_EXISTS="${{ steps.check-release.outputs.release_exists }}"
+          IS_PRERELEASE="${{ needs.build.outputs.is_prerelease }}"
+
+          NEW_JAR="${JAR_NAME}.jar"
+          if [[ ! -f "$NEW_JAR" ]]; then
+            echo "ERROR: Built JAR not found: $NEW_JAR"
+            ls -la
+            exit 1
+          fi
+
+          if [[ "$RELEASE_EXISTS" == "true" ]]; then
+            # --- Existing release: append JAR and rebuild zip ---
+            echo "Updating existing release $TAG_NAME"
+
+            # Download all existing JARs from the release
+            mkdir -p dist
+            gh release download "$TAG_NAME" --repo "${{ github.repository }}" --pattern "${ARTIFACT_ID}-*.jar" --dir dist || true
+            
+            # Add the new JAR (overwrites if same server version was already published)
+            cp "$NEW_JAR" dist/
+
+            # Collect server versions from all JAR filenames for the release body
+            SERVER_VERSIONS=""
+            for jar in dist/*.jar; do
+              fname=$(basename "$jar")
+              # Extract server version: everything after the "+" in the filename, minus .jar
+              sv="${fname#*+}"
+              sv="${sv%.jar}"
+              if [[ -n "$sv" ]]; then
+                SERVER_VERSIONS="${SERVER_VERSIONS}- \`${sv}\`\n"
+              fi
+            done
+
+            # Rebuild the zip with all JARs
+            ZIP_NAME="${ARTIFACT_ID}-${VERSION}.zip"
+            rm -f "$ZIP_NAME"
+            cd dist
+            zip -r "../${ZIP_NAME}" .
+            cd ..
+
+            # Get current release body (the changelog portion)
+            CURRENT_BODY=$(gh release view "$TAG_NAME" --repo "${{ github.repository }}" --json body --jq '.body')
+
+            # Strip any previous "Server Versions" section (everything from the marker to the next blank-line-then-# or end)
+            CLEANED_BODY=$(echo "$CURRENT_BODY" | sed '/^## Server Versions$/,/^$/d')
+
+            # Append updated server versions section
+            UPDATED_BODY="${CLEANED_BODY}
+
+          ## Server Versions
+          $(echo -e "$SERVER_VERSIONS")"
+
+            # Delete the old zip so we can re-upload
+            gh release delete-asset "$TAG_NAME" "$ZIP_NAME" --repo "${{ github.repository }}" --yes 2>/dev/null || true
+
+            # Upload new JAR and rebuilt zip, then update the body
+            gh release upload "$TAG_NAME" "$NEW_JAR" "${ZIP_NAME}" --repo "${{ github.repository }}" --clobber
+            gh release edit "$TAG_NAME" --repo "${{ github.repository }}" \
+              --notes "$UPDATED_BODY"
+
+            echo "Release updated with new JAR and rebuilt zip"
+          else
+            # --- New release: create from scratch ---
+            echo "Creating new release $TAG_NAME"
+
+            mkdir -p dist
+            cp "$NEW_JAR" dist/
+
+            ZIP_NAME="${ARTIFACT_ID}-${VERSION}.zip"
+            cd dist
+            zip -r "../${ZIP_NAME}" .
+            cd ..
+
+            SERVER_VERSION="${{ needs.build.outputs.hytale_server_version }}"
+            CHANGELOG="$CHANGELOG_BODY"
+
+            BODY="${CHANGELOG}
+
+          ## Server Versions
+          - \`${SERVER_VERSION}\`"
+
+            PRERELEASE_FLAG=""
+            if [[ "$IS_PRERELEASE" == "true" ]]; then
+              PRERELEASE_FLAG="--prerelease"
+            fi
+
+            gh release create "$TAG_NAME" \
+              --repo "${{ github.repository }}" \
+              --title "Release ${VERSION}" \
+              --notes "$BODY" \
+              $PRERELEASE_FLAG \
+              "$NEW_JAR" "${ZIP_NAME}"
+
+            echo "Release created"
+          fi
+
+  publish-gcs:
+    needs: [build, release]
+    if: ${{ needs.build.outputs.is_release == 'true' && needs.release.result == 'success' }}
+    uses: ./.github/workflows/gcs-publish.yml
+    with:
+      artifact-id: ${{ needs.build.outputs.artifact_id }}
+      version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.hytale_server_version }}
+      tag-name: ${{ needs.build.outputs.tag_name }}
+    secrets:
+      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+      GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+
+  publish-maven:
+    needs: [build, release]
+    if: ${{ needs.build.outputs.is_release == 'true' && needs.release.result == 'success' }}
+    uses: ./.github/workflows/maven-publish.yml
+    with:
+      java-version: ${{ inputs.java-version-publish }}
+      version: ${{ needs.build.outputs.version }}
+      tag-name: ${{ needs.build.outputs.tag_name }}
+      hytale-server-version: ${{ needs.build.outputs.hytale_server_version }}
+    secrets:
+      MAVEN_REPO_URL: ${{ secrets.MAVEN_REPO_URL }}
+      MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+      MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+      MAVEN_PUBLISH_URL: ${{ secrets.MAVEN_PUBLISH_URL }}
+      MAVEN_PUBLISH_USERNAME: ${{ secrets.MAVEN_PUBLISH_USERNAME }}
+      MAVEN_PUBLISH_PASSWORD: ${{ secrets.MAVEN_PUBLISH_PASSWORD }}
+
+  publish-modtale:
+    needs: [build, release]
+    if: ${{ needs.build.outputs.is_release == 'true' && needs.release.result == 'success' }}
+    uses: ./.github/workflows/modtale-publish.yml
+    with:
+      artifact-id: ${{ needs.build.outputs.artifact_id }}
+      version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.hytale_server_version }}
+      tag-name: ${{ needs.build.outputs.tag_name }}
+      game-versions: ${{ needs.build.outputs.hytale_server_version }}
+    secrets:
+      MODTALE_API_KEY: ${{ secrets.MODTALE_API_KEY }}
+      MODTALE_PROJECT_ID: ${{ secrets.MODTALE_PROJECT_ID }}
+
+  publish-curseforge:
+    needs: [build, release]
+    if: ${{ needs.build.outputs.is_release == 'true' && needs.release.result == 'success' }}
+    uses: ./.github/workflows/curseforge-publish.yml
+    with:
+      artifact-id: ${{ needs.build.outputs.artifact_id }}
+      version: ${{ needs.build.outputs.version }}+${{ needs.build.outputs.hytale_server_version }}
+      tag-name: ${{ needs.build.outputs.tag_name }}
+    secrets:
+      CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+      CURSEFORGE_PROJECT_ID: ${{ secrets.CURSEFORGE_PROJECT_ID }}
+

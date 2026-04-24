@@ -10,15 +10,25 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Extract version from tag
+        id: version
+        run: |
+          # Extract version from tag (remove 'v' prefix if present)
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '25'
           distribution: 'temurin'
 
       - name: Setup Gradle
@@ -29,10 +39,59 @@ jobs:
           chmod +x gradlew
           ./gradlew shadowJar
 
+      - name: Rename JAR for publish workflows
+        run: |
+          # Copy the -all.jar file to the expected naming format for publish workflows
+          cp "build/libs/Vuetale-${{ steps.version.outputs.version }}-all.jar" "build/libs/Vuetale-${{ steps.version.outputs.version }}.jar"
+          ls -la build/libs/
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/libs/*-all.jar
+          files: |
+            build/libs/*-all.jar
+            build/libs/Vuetale-${{ steps.version.outputs.version }}.jar
           generate_release_notes: true
+
+  # Call all publish workflows after successful release creation
+  publish-maven:
+    needs: build
+    uses: ./.github/workflows/maven-publish.yml
+    with:
+      java-version: "25"
+      version: ${{ needs.build.outputs.version }}
+      tag-name: ${{ github.ref_name }}
+      hytale-server-version: "release"
+    secrets: inherit
+
+  publish-curseforge:
+    needs: build
+    uses: ./.github/workflows/curseforge-publish.yml
+    with:
+      artifact-id: "Vuetale"
+      version: ${{ needs.build.outputs.version }}
+      tag-name: ${{ github.ref_name }}
+      game-endpoint: "hytale"
+      game-versions: "1.0-SNAPSHOT"
+    secrets: inherit
+
+  publish-modtale:
+    needs: build
+    uses: ./.github/workflows/modtale-publish.yml
+    with:
+      artifact-id: "Vuetale"
+      version: ${{ needs.build.outputs.version }}
+      tag-name: ${{ github.ref_name }}
+      game-versions: "1.0-SNAPSHOT"
+    secrets: inherit
+
+  publish-gcs:
+    needs: build
+    uses: ./.github/workflows/gcs-publish.yml
+    with:
+      artifact-id: "Vuetale"
+      version: ${{ needs.build.outputs.version }}
+      tag-name: ${{ github.ref_name }}
+    secrets: inherit
 
 

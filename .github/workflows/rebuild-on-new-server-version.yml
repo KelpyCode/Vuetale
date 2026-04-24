@@ -1,0 +1,178 @@
+name: Rebuild on new Server Version (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      artifact-id:
+        description: "The Maven artifact ID, e.g. nitrado-query"
+        type: string
+        required: true
+    secrets:
+      MAVEN_REPO_URL:
+        description: "Maven repository URL for dependencies"
+        required: false
+      MAVEN_USERNAME:
+        description: "Maven repository username"
+        required: false
+      MAVEN_PASSWORD:
+        description: "Maven repository password"
+        required: false
+      MAVEN_PUBLISH_URL:
+        description: "Maven repository URL for publishing"
+        required: false
+      MAVEN_PUBLISH_USERNAME:
+        description: "Maven publish username"
+        required: false
+      MAVEN_PUBLISH_PASSWORD:
+        description: "Maven publish password"
+        required: false
+      GCP_CREDENTIALS:
+        description: "GCP credentials JSON"
+        required: false
+      GCS_BUCKET:
+        description: "GCS bucket for artifact upload"
+        required: false
+      MODTALE_API_KEY:
+        description: "Modtale API key for authentication"
+        required: false
+      MODTALE_PROJECT_ID:
+        description: "Modtale project ID"
+        required: false
+      CURSEFORGE_TOKEN:
+        description: "CurseForge API token for authentication"
+        required: false
+      CURSEFORGE_PROJECT_ID:
+        description: "CurseForge project ID (numerical)"
+        required: false
+
+jobs:
+  check:
+    if: ${{ github.repository != 'nitrado/hytale-plugin-workflows' }}
+    runs-on: ubuntu-latest
+    outputs:
+      needs_build: ${{ steps.needs-build.outputs.needed }}
+      tag_name: ${{ steps.latest-release.outputs.tag_name }}
+    steps:
+      - name: Fetch latest Hytale Server version
+        id: hytale-version
+        run: |
+          echo "Fetching latest Hytale Server version from maven.hytale.com..."
+          METADATA_URL="https://maven.hytale.com/release/com/hypixel/hytale/Server/maven-metadata.xml"
+
+          METADATA=$(curl -sf "$METADATA_URL") || {
+            echo "ERROR: Failed to fetch maven-metadata.xml from $METADATA_URL"
+            exit 1
+          }
+
+          SERVER_VERSION=$(echo "$METADATA" | grep -oP '(?<=<release>)[^<]+' | head -1)
+
+          if [[ -z "$SERVER_VERSION" ]]; then
+            echo "ERROR: Could not parse Hytale Server version from maven-metadata.xml"
+            echo "Metadata content:"
+            echo "$METADATA"
+            exit 1
+          fi
+
+          echo "current_server_version=$SERVER_VERSION" >> $GITHUB_OUTPUT
+          echo "Current Hytale Server version: $SERVER_VERSION"
+
+      - name: Determine latest stable release
+        id: latest-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Fetching latest stable release..."
+
+          RELEASE_JSON=$(gh release list \
+            --repo "${{ github.repository }}" \
+            --exclude-pre-releases \
+            --limit 1 \
+            --json tagName \
+            --jq '.[0]')
+
+          if [[ -z "$RELEASE_JSON" || "$RELEASE_JSON" == "null" ]]; then
+            echo "No stable release found. Nothing to do."
+            echo "found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tagName')
+          echo "Latest stable release tag: $TAG_NAME"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "found=true" >> $GITHUB_OUTPUT
+
+      - name: Extract supported server versions from release assets
+        if: ${{ steps.latest-release.outputs.found == 'true' }}
+        id: supported-versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${{ steps.latest-release.outputs.tag_name }}"
+          ARTIFACT_ID="${{ inputs.artifact-id }}"
+
+          echo "Listing JAR assets for release $TAG_NAME..."
+
+          ASSETS=$(gh release view "$TAG_NAME" \
+            --repo "${{ github.repository }}" \
+            --json assets \
+            --jq '.assets[].name')
+
+          SUPPORTED_VERSIONS=""
+          while IFS= read -r asset; do
+            if [[ "$asset" == ${ARTIFACT_ID}-*+*.jar ]]; then
+              sv="${asset#*+}"
+              sv="${sv%.jar}"
+              if [[ -n "$sv" ]]; then
+                SUPPORTED_VERSIONS="${SUPPORTED_VERSIONS}${sv}"$'\n'
+                echo "Found supported server version: $sv"
+              fi
+            fi
+          done <<< "$ASSETS"
+
+          if [[ -z "$SUPPORTED_VERSIONS" ]]; then
+            echo "WARNING: No server versions could be extracted from release assets"
+            echo "Assets found:"
+            echo "$ASSETS"
+          fi
+
+          echo "supported_versions<<EOF" >> $GITHUB_OUTPUT
+          echo "$SUPPORTED_VERSIONS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Check if current server version is already supported
+        if: ${{ steps.latest-release.outputs.found == 'true' }}
+        id: needs-build
+        run: |
+          CURRENT="${{ steps.hytale-version.outputs.current_server_version }}"
+          SUPPORTED="${{ steps.supported-versions.outputs.supported_versions }}"
+
+          echo "Checking if server version $CURRENT is already supported..."
+
+          if echo "$SUPPORTED" | grep -qxF "$CURRENT"; then
+            echo "Server version $CURRENT is already supported. No action needed."
+            echo "needed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Server version $CURRENT is NOT supported yet. Build required."
+            echo "needed=true" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: [check]
+    if: ${{ needs.check.outputs.needs_build == 'true' }}
+    uses: ./.github/workflows/plugin-ci.yml
+    with:
+      checkout-ref: ${{ needs.check.outputs.tag_name }}
+    secrets:
+      MAVEN_REPO_URL: ${{ secrets.MAVEN_REPO_URL }}
+      MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+      MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+      MAVEN_PUBLISH_URL: ${{ secrets.MAVEN_PUBLISH_URL }}
+      MAVEN_PUBLISH_USERNAME: ${{ secrets.MAVEN_PUBLISH_USERNAME }}
+      MAVEN_PUBLISH_PASSWORD: ${{ secrets.MAVEN_PUBLISH_PASSWORD }}
+      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+      GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+      MODTALE_API_KEY: ${{ secrets.MODTALE_API_KEY }}
+      MODTALE_PROJECT_ID: ${{ secrets.MODTALE_PROJECT_ID }}
+      CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+      CURSEFORGE_PROJECT_ID: ${{ secrets.CURSEFORGE_PROJECT_ID }}
+

@@ -1,0 +1,211 @@
+name: CurseForge Publish (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      artifact-id:
+        description: "The Maven artifact ID, e.g. nitrado-query"
+        type: string
+        required: true
+      version:
+        description: "The semver version string, e.g. 1.1.1-rc1+2026.02.19-1a311a592"
+        type: string
+        required: true
+      tag-name:
+        description: "The GitHub release tag name"
+        type: string
+        required: true
+      game-endpoint:
+        description: "The subdomain of curseforge.com (e.g., minecraft, kerbal, hytale)"
+        type: string
+        default: "42"
+      game-versions:
+        description: "Game version IDs (comma-separated)"
+        type: string
+        default: ""
+      relations:
+        description: "Project relations (format: projectslug:relationType, comma-separated)"
+        type: string
+        default: ""
+    secrets:
+      CURSEFORGE_TOKEN:
+        description: "CurseForge API token for authentication"
+        required: false
+      CURSEFORGE_PROJECT_ID:
+        description: "CurseForge project ID (numerical)"
+        required: false
+
+  workflow_dispatch:
+    inputs:
+      artifact-id:
+        description: "The Maven artifact ID, e.g. nitrado-query"
+        type: string
+        required: true
+      version:
+        description: "The semver version string, e.g. 1.1.1-rc1+2026.02.19-1a311a592"
+        type: string
+        required: true
+      tag-name:
+        description: "The GitHub release tag name"
+        type: string
+        required: true
+      game-endpoint:
+        description: "The subdomain of curseforge.com"
+        type: string
+        default: "42"
+      game-versions:
+        description: "Game version IDs (comma-separated)"
+        type: string
+        default: ""
+      relations:
+        description: "Project relations (format: projectslug:relationType, comma-separated)"
+        type: string
+        default: ""
+
+jobs:
+  publish-curseforge:
+    if: ${{ github.repository != 'nitrado/hytale-plugin-workflows' }}
+    runs-on: ubuntu-latest
+    environment: publish-external
+    steps:
+      - name: Resolve tag and release type
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # For workflow_call, use inputs.tag-name; for workflow_dispatch, use GITHUB_REF
+          if [[ -n "${{ inputs.tag-name }}" ]]; then
+            TAG_NAME="${{ inputs.tag-name }}"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          else
+            echo "ERROR: Must be triggered on a tag (current ref: $GITHUB_REF)"
+            exit 1
+          fi
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          
+          # Determine release type from GitHub release prerelease status
+          IS_PRERELEASE=$(gh api repos/${{ github.repository }}/releases/tags/$TAG_NAME --jq '.prerelease' 2>/dev/null || echo "false")
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            echo "release_type=beta" >> $GITHUB_OUTPUT
+            echo "GitHub release is a prerelease, using release type: beta"
+          else
+            echo "release_type=release" >> $GITHUB_OUTPUT
+            echo "GitHub release is stable, using release type: release"
+          fi
+
+      - name: Fetch changelog from release
+        id: changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${{ steps.resolve.outputs.tag_name }}"
+          
+          RELEASE_BODY=$(gh api repos/${{ github.repository }}/releases/tags/$TAG_NAME --jq '.body // empty' 2>/dev/null || echo "")
+          
+          if [[ -n "$RELEASE_BODY" ]]; then
+            {
+              echo 'changelog<<EOF'
+              echo "$RELEASE_BODY"
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
+          else
+            echo "changelog=Automated Build & Release from GitHub" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download jar from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${{ steps.resolve.outputs.tag_name }}"
+          JAR_NAME="${{ inputs.artifact-id }}-${{ inputs.version }}.jar"
+          
+          echo "Downloading jar from release: $JAR_NAME"
+          gh release download "$TAG_NAME" --repo "${{ github.repository }}" --pattern "$JAR_NAME" || {
+            echo "ERROR: Failed to download $JAR_NAME from release $TAG_NAME"
+            exit 1
+          }
+          
+          echo "Downloaded files:"
+          ls -la
+
+      - name: Upload to CurseForge
+        env:
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+          CURSEFORGE_PROJECT_ID: ${{ secrets.CURSEFORGE_PROJECT_ID }}
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+        run: |
+          # Check if secrets are configured
+          if [[ -z "$CURSEFORGE_TOKEN" || -z "$CURSEFORGE_PROJECT_ID" ]]; then
+            echo "CurseForge secrets not configured, skipping publish"
+            exit 0
+          fi
+          
+          VERSION="${{ inputs.version }}"
+          JAR_PATH="./${{ inputs.artifact-id }}-${VERSION}.jar"
+          
+          if [[ ! -f "$JAR_PATH" ]]; then
+            echo "ERROR: Could not find jar file at $JAR_PATH"
+            ls -la
+            exit 1
+          fi
+          
+          echo "Found Jar: $JAR_PATH"
+          echo "Publishing Version: $VERSION"
+          echo "Game Versions: ${{ inputs.game-versions }}"
+          
+          # Build game versions JSON block (only if provided)
+          GAME_VERSIONS_BLOCK=""
+          if [[ -n "${{ inputs.game-versions }}" ]]; then
+            GAME_VERSIONS_JSON=$(echo "${{ inputs.game-versions }}" | tr ',' '\n' | jq -R . | jq -s .)
+            GAME_VERSIONS_BLOCK=",\"gameVersions\": $GAME_VERSIONS_JSON"
+          fi
+          
+          # Build relations JSON block (only if relations are provided)
+          RELATIONS_BLOCK=""
+          if [[ -n "${{ inputs.relations }}" ]]; then
+            RELATIONS_JSON=$(echo "${{ inputs.relations }}" | tr ',' '\n' | while read -r relation; do
+              slug=$(echo "$relation" | cut -d: -f1)
+              type=$(echo "$relation" | cut -d: -f2)
+              echo "{\"slug\": \"$slug\", \"type\": \"$type\"}"
+            done | jq -s .)
+            RELATIONS_BLOCK=",\"relations\": {\"projects\": $RELATIONS_JSON}"
+          fi
+          
+          # Write changelog to temp file to handle all special characters safely
+          CHANGELOG_FILE=$(mktemp)
+          printf '%s' "$CHANGELOG" > "$CHANGELOG_FILE"
+          trap 'rm -f "$CHANGELOG_FILE" metadata.json' EXIT
+          
+          # Build metadata JSON
+          cat > metadata.json << EOF
+          {
+            "changelog": $(jq -Rs . < "$CHANGELOG_FILE"),
+            "changelogType": "markdown",
+            "displayName": "${VERSION}",
+            "releaseType": "${{ steps.resolve.outputs.release_type }}"$GAME_VERSIONS_BLOCK$RELATIONS_BLOCK
+          }
+          EOF
+          
+          echo "Metadata:"
+          cat metadata.json
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://${{ inputs.game-endpoint }}.curseforge.com/api/projects/$CURSEFORGE_PROJECT_ID/upload-file" \
+            -H "X-Api-Token: $CURSEFORGE_TOKEN" \
+            -F "metadata=<metadata.json" \
+            -F "file=@$JAR_PATH")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+          
+          if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+            echo "Successfully published to CurseForge!"
+          else
+            echo "ERROR: Failed to publish to CurseForge (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+

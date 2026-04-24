@@ -281,12 +281,12 @@ object PlayerUiManager {
         store: Store<EntityStore>,
         module: String,
         hud: String,
-    ) {
+    ): PlayerUi {
         var componentPath = "@$module/huds/$hud"
         if (!componentPath.endsWith(".vue.js")) {
             componentPath += ".vue.js"
         }
 
-        getOrCreate(playerRef.uuid, playerRef, ref, store).openHud(componentPath)
+        return getOrCreate(playerRef.uuid, playerRef, ref, store).openHud(componentPath)
     }
 }

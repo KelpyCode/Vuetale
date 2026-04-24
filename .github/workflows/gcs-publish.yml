@@ -1,0 +1,108 @@
+name: GCS Publish (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      artifact-id:
+        description: "The Maven artifact ID, e.g. nitrado-query"
+        type: string
+        required: true
+      version:
+        description: "The semver version string, e.g. 1.1.1-rc1+2026.02.19-1a311a592"
+        type: string
+        required: true
+      tag-name:
+        description: "The GitHub release tag name"
+        type: string
+        required: true
+    secrets:
+      GCP_CREDENTIALS:
+        description: "GCP credentials JSON"
+        required: false
+      GCS_BUCKET:
+        description: "GCS bucket for artifact upload"
+        required: false
+
+  workflow_dispatch:
+    inputs:
+      artifact-id:
+        description: "The Maven artifact ID, e.g. nitrado-query"
+        type: string
+        required: true
+      version:
+        description: "The semver version string, e.g. 1.1.1-rc1+2026.02.19-1a311a592"
+        type: string
+        required: true
+      tag-name:
+        description: "The GitHub release tag name"
+        type: string
+        required: true
+
+jobs:
+  publish-gcs:
+    if: ${{ github.repository != 'nitrado/hytale-plugin-workflows' }}
+    runs-on: ubuntu-latest
+    environment: publish-external
+    env:
+      HAVE_GCP: ${{ secrets.GCP_CREDENTIALS != '' }}
+      HAVE_GCS_BUCKET: ${{ secrets.GCS_BUCKET != '' }}
+    steps:
+      - name: Resolve tag
+        id: resolve
+        run: |
+          # For workflow_call, use inputs.tag-name; for workflow_dispatch, use GITHUB_REF
+          if [[ -n "${{ inputs.tag-name }}" ]]; then
+            TAG_NAME="${{ inputs.tag-name }}"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          else
+            echo "ERROR: Must be triggered on a tag (current ref: $GITHUB_REF)"
+            exit 1
+          fi
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Check GCP configuration
+        if: ${{ env.HAVE_GCP != 'true' || env.HAVE_GCS_BUCKET != 'true' }}
+        run: |
+          echo "GCP credentials or GCS bucket not configured, skipping publish"
+          exit 0
+
+      - name: Download release assets
+        if: ${{ env.HAVE_GCP == 'true' && env.HAVE_GCS_BUCKET == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${{ steps.resolve.outputs.tag_name }}"
+          
+          JAR_NAME="${{ inputs.artifact-id }}-${{ inputs.version }}.jar"
+          ZIP_NAME="${{ inputs.artifact-id }}-${{ inputs.version }}.zip"
+          
+          echo "Downloading jar from release: $JAR_NAME"
+          gh release download "$TAG_NAME" --repo "${{ github.repository }}" --pattern "$JAR_NAME" || {
+            echo "ERROR: Failed to download $JAR_NAME from release $TAG_NAME"
+            exit 1
+          }
+          
+          echo "Creating zip archive"
+          mkdir -p dist
+          mv "$JAR_NAME" dist/
+          cd dist
+          zip -r "../$ZIP_NAME" .
+          cd ..
+          
+          echo "Files ready for upload:"
+          ls -la
+
+      - name: Log in to Google Cloud
+        if: ${{ env.HAVE_GCP == 'true' && env.HAVE_GCS_BUCKET == 'true' }}
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Upload to Google Cloud Storage
+        if: ${{ env.HAVE_GCP == 'true' && env.HAVE_GCS_BUCKET == 'true' }}
+        uses: google-github-actions/upload-cloud-storage@v3
+        with:
+          path: ${{ inputs.artifact-id }}-${{ inputs.version }}.zip
+          destination: ${{ secrets.GCS_BUCKET }}
+

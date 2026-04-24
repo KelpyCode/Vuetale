@@ -1,0 +1,169 @@
+name: Maven Publish (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        description: "Java version for Maven publishing"
+        type: string
+        default: "25"
+      version:
+        description: "The Maven version to publish, e.g. 1.1.1-rc1"
+        type: string
+        required: true
+      tag-name:
+        description: "The GitHub release tag name"
+        type: string
+        required: true
+      hytale-server-version:
+        description: "The Hytale Server version to use for dependency resolution"
+        type: string
+        required: true
+    secrets:
+      MAVEN_REPO_URL:
+        description: "Maven repository URL for dependencies"
+        required: false
+      MAVEN_USERNAME:
+        description: "Maven repository username"
+        required: false
+      MAVEN_PASSWORD:
+        description: "Maven repository password"
+        required: false
+      MAVEN_PUBLISH_URL:
+        description: "Maven repository URL for publishing"
+        required: false
+      MAVEN_PUBLISH_USERNAME:
+        description: "Maven publish username"
+        required: false
+      MAVEN_PUBLISH_PASSWORD:
+        description: "Maven publish password"
+        required: false
+
+  workflow_dispatch:
+    inputs:
+      java-version:
+        description: "Java version for Maven publishing"
+        type: string
+        default: "25"
+      version:
+        description: "The Maven version to publish, e.g. 1.1.1-rc1"
+        type: string
+        required: true
+      tag-name:
+        description: "The GitHub release tag name"
+        type: string
+        required: true
+      hytale-server-version:
+        description: "The Hytale Server version to use for dependency resolution"
+        type: string
+        required: true
+
+jobs:
+  publish-maven:
+    if: ${{ github.repository != 'nitrado/hytale-plugin-workflows' }}
+    runs-on: ubuntu-latest
+    environment: publish-external
+    env:
+      HAVE_MAVEN_PUBLISH: ${{ secrets.MAVEN_PUBLISH_URL != '' && secrets.MAVEN_PUBLISH_USERNAME != '' && secrets.MAVEN_PUBLISH_PASSWORD != '' }}
+      HAVE_MAVEN_REPO: ${{ secrets.MAVEN_REPO_URL != '' && secrets.MAVEN_USERNAME != '' && secrets.MAVEN_PASSWORD != '' }}
+    steps:
+      - name: Resolve tag
+        id: resolve
+        run: |
+          # For workflow_call, use inputs.tag-name; for workflow_dispatch, use GITHUB_REF
+          if [[ -n "${{ inputs.tag-name }}" ]]; then
+            TAG_NAME="${{ inputs.tag-name }}"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          else
+            echo "ERROR: Must be triggered on a tag (current ref: $GITHUB_REF)"
+            exit 1
+          fi
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Check Maven publish configuration
+        if: ${{ env.HAVE_MAVEN_PUBLISH != 'true' }}
+        run: |
+          echo "Maven publish credentials not configured, skipping publish"
+          exit 0
+
+      - name: Checkout
+        if: ${{ env.HAVE_MAVEN_PUBLISH == 'true' }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.resolve.outputs.tag_name }}
+
+      - name: Set up Java
+        if: ${{ env.HAVE_MAVEN_PUBLISH == 'true' }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      - name: Set up Maven settings.xml for publishing
+        if: ${{ env.HAVE_MAVEN_PUBLISH == 'true' }}
+        env:
+          MAVEN_REPO_URL: ${{ secrets.MAVEN_REPO_URL }}
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+        run: |
+          mkdir -p $HOME/.m2
+          
+          # Build servers section
+          SERVERS="<server>
+                <id>publish-repo</id>
+                <username>${{ secrets.MAVEN_PUBLISH_USERNAME }}</username>
+                <password>${{ secrets.MAVEN_PUBLISH_PASSWORD }}</password>
+              </server>"
+          
+          PROFILES=""
+          ACTIVE_PROFILES=""
+          
+          # Add custom repo for dependencies if configured
+          if [[ -n "$MAVEN_REPO_URL" && -n "$MAVEN_USERNAME" && -n "$MAVEN_PASSWORD" ]]; then
+            SERVERS="$SERVERS
+              <server>
+                <id>custom-repo</id>
+                <username>$MAVEN_USERNAME</username>
+                <password>$MAVEN_PASSWORD</password>
+              </server>"
+            
+            PROFILES="<profiles>
+              <profile>
+                <id>additional-repo</id>
+                <repositories>
+                  <repository>
+                    <id>custom-repo</id>
+                    <url>$MAVEN_REPO_URL</url>
+                  </repository>
+                </repositories>
+              </profile>
+            </profiles>"
+            
+            ACTIVE_PROFILES="<activeProfiles>
+              <activeProfile>additional-repo</activeProfile>
+            </activeProfiles>"
+          fi
+          
+          cat > $HOME/.m2/settings.xml << EOF
+          <settings>
+            <servers>
+              $SERVERS
+            </servers>
+            $PROFILES
+            $ACTIVE_PROFILES
+          </settings>
+          EOF
+
+      - name: Deploy to Maven repository
+        if: ${{ env.HAVE_MAVEN_PUBLISH == 'true' }}
+        run: >
+          mvn -B -V
+          clean
+          deploy
+          -Drevision=${{ inputs.version }}
+          -Dhytale.server.version=${{ inputs.hytale-server-version }}
+          -DaltDeploymentRepository=publish-repo::${{ secrets.MAVEN_PUBLISH_URL }}
+          -DskipTests
+

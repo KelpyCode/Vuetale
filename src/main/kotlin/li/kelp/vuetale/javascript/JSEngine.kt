@@ -224,6 +224,46 @@ class JSEngine : AutoCloseable {
 
         v8Runtime.globalObject.set("ktBridge", bridge)
 
+        // Install timer wrapper before loading any third-party code so timers
+        // created by Vue/loader.js are tracked.
+        runCatching {
+            v8Runtime.getExecutor(
+                """
+                (function() {
+                    if (globalThis.__vt_timers_installed) return;
+                    globalThis.__vt_timers_installed = true;
+                    globalThis.__vt_timers = new Set();
+                    const _setTimeout = globalThis.setTimeout;
+                    const _setInterval = globalThis.setInterval;
+
+                    globalThis.setTimeout = function(fn, t, ...args) {
+                        const id = _setTimeout(function(...a) {
+                            try { fn(...a); } catch (e) { console.error('__vt timer error', e); }
+                            try { globalThis.__vt_timers.delete(id); } catch (e) {}
+                        }, t, ...args);
+                        try { globalThis.__vt_timers.add(id); } catch (e) {}
+                        return id;
+                    };
+
+                    globalThis.setInterval = function(fn, t, ...args) {
+                        const id = _setInterval(fn, t, ...args);
+                        try { globalThis.__vt_timers.add(id); } catch (e) {}
+                        return id;
+                    };
+
+                    globalThis.__vt_clearTimers = function() {
+                        try {
+                            for (const id of Array.from(globalThis.__vt_timers || [])) {
+                                try { clearTimeout(id); clearInterval(id); } catch (e) {}
+                            }
+                            globalThis.__vt_timers && globalThis.__vt_timers.clear();
+                        } catch (e) { /* ignore */ }
+                    };
+                })();
+            """.trimIndent()
+            ).executeVoid()
+        }
+
         // Load Vue as a plain IIFE script -> sets globalThis.Vue.
         // In dev mode with useDevVue=true, prefer vue.dev.js (full warnings + __VUE_HMR_RUNTIME__).
         val vueIife = (if (DevConfig.useDevVue) loadClasspathText("vue.dev.js") else null)
@@ -246,6 +286,49 @@ class JSEngine : AutoCloseable {
 
         loaderCtx = v8Runtime.globalObject.get("_vt")
             ?: error("globalThis._vt was not set after loading loader.js")
+
+        // Install a small timer registry wrapper so we can clear outstanding
+        // setTimeout/setInterval callbacks during full engine restart.  Without
+        // this, callbacks scheduled before a hot-reload may run against a torn
+        // down ktBridge/global context and cause crashes.  The wrapper keeps a
+        // Weak-ish registry of active timer ids and exposes __vt_clearTimers().
+        runCatching {
+            v8Runtime.getExecutor(
+                """
+                (function() {
+                    if (globalThis.__vt_timers_installed) return;
+                    globalThis.__vt_timers_installed = true;
+                    globalThis.__vt_timers = new Set();
+                    const _setTimeout = globalThis.setTimeout;
+                    const _setInterval = globalThis.setInterval;
+
+                    globalThis.setTimeout = function(fn, t, ...args) {
+                        const id = _setTimeout(function(...a) {
+                            try { fn(...a); } catch (e) { console.error('__vt timer error', e); }
+                            try { globalThis.__vt_timers.delete(id); } catch (e) {}
+                        }, t, ...args);
+                        try { globalThis.__vt_timers.add(id); } catch (e) {}
+                        return id;
+                    };
+
+                    globalThis.setInterval = function(fn, t, ...args) {
+                        const id = _setInterval(fn, t, ...args);
+                        try { globalThis.__vt_timers.add(id); } catch (e) {}
+                        return id;
+                    };
+
+                    globalThis.__vt_clearTimers = function() {
+                        try {
+                            for (const id of Array.from(globalThis.__vt_timers || [])) {
+                                try { clearTimeout(id); clearInterval(id); } catch (e) {}
+                            }
+                            globalThis.__vt_timers && globalThis.__vt_timers.clear();
+                        } catch (e) { /* ignore */ }
+                    };
+                })();
+            """.trimIndent()
+            ).executeVoid()
+        }
     }
 
     /** Called repeatedly by the scheduler on the V8 thread. Pumps the Node.js event loop. */
@@ -584,6 +667,12 @@ class JSEngine : AutoCloseable {
             moduleCache.values.forEach { runCatching { it.close() } }
             moduleCache.clear()
             modulePathIndex.clear()
+            // First, clear any outstanding JS timers so their callbacks cannot run
+            // against the soon-to-be-closed runtime (these callbacks often reference
+            // global ktBridge and would crash after hot-reload).
+            runCatching { v8Runtime.getExecutor("if (typeof __vt_clearTimers === 'function') { try { __vt_clearTimers(); } catch(e){} };").executeVoid() }
+            // Remove references that JS callbacks may try to access.
+            runCatching { v8Runtime.globalObject.delete("ktBridge") }
             runCatching { if (::loaderCtx.isInitialized) loaderCtx.close() }
             runCatching { v8Runtime.globalObject.delete("ktConsole") }
             runCatching { v8Runtime.close() }

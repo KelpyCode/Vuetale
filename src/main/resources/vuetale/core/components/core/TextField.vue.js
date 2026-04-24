@@ -1,7 +1,7 @@
-import { defineComponent as _, useAttrs as m, computed as h, ref as y, openBlock as f, createElementBlock as v, createElementVNode as g, createVNode as T, unref as r, mergeProps as V, nextTick as x } from "vue";
-import { Common as B } from "../Common.js";
-import { useForwardedBindings as F } from "../../composables/useForwardedBindings.js";
-const S = { anchor: { Top: 40 } }, e = /* @__PURE__ */ _({
+import { defineComponent as d, useAttrs as _, computed as m, ref as h, openBlock as y, createBlock as f, unref as i, mergeProps as v, nextTick as g } from "vue";
+import { Common as x } from "../Common.js";
+import { useForwardedBindings as B } from "../../composables/useForwardedBindings.js";
+const e = /* @__PURE__ */ d({
   inheritAttrs: !1,
   __name: "TextField",
   props: {
@@ -44,31 +44,28 @@ const S = { anchor: { Top: 40 } }, e = /* @__PURE__ */ _({
   },
   emits: ["update:modelValue"],
   setup(n, { emit: u }) {
-    const l = n, s = m(), p = u, a = h({
+    const l = n, r = _(), s = u, a = m({
       get() {
         return l.modelValue;
       },
-      set(o) {
-        p("update:modelValue", o);
+      set(t) {
+        s("update:modelValue", t);
       }
-    }), { forwardedBindings: d } = F(
+    }), { forwardedBindings: p } = B(
       l,
-      s,
+      r,
       { exclude: ["modelValue", "value"] }
-    ), t = y(!1);
-    function c(o) {
-      t.value = !0, a.value = o, x(() => {
-        t.value = !1;
+    ), o = h(!1);
+    function c(t) {
+      o.value = !0, a.value = t, g(() => {
+        o.value = !1;
       });
     }
-    return (o, i) => (f(), v("Group", S, [
-      i[0] || (i[0] = g("Label", null, "TEST", -1)),
-      T(r(B).TextField, V(r(d), {
-        onValuechanged: c,
-        value: a.value,
-        "vt-skip-update": t.value
-      }), null, 16, ["value", "vt-skip-update"])
-    ]));
+    return (t, T) => (y(), f(i(x).TextField, v(i(p), {
+      onValueChanged: c,
+      value: a.value,
+      "vt-skip-update": o.value
+    }), null, 16, ["value", "vt-skip-update"]));
   }
 });
 e.__hmrId = "c161fde0";
@@ -76,4 +73,4 @@ typeof __VUE_HMR_RUNTIME__ < "u" && (__VUE_HMR_RUNTIME__.createRecord(e.__hmrId,
 export {
   e as default
 };
-//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiVGV4dEZpZWxkLnZ1ZS5qcyIsInNvdXJjZXMiOltdLCJzb3VyY2VzQ29udGVudCI6W10sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiI7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7OzsifQ==
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiVGV4dEZpZWxkLnZ1ZS5qcyIsInNvdXJjZXMiOltdLCJzb3VyY2VzQ29udGVudCI6W10sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiI7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7OzsifQ==
