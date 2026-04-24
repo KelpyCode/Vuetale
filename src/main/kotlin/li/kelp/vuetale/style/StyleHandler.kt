@@ -30,10 +30,10 @@ object StyleHandler {
 
         map {
             name("Anchor")
-            entry("Left") { key, value -> PropertyNumber(key, value.toInt()) }
-            entry("Right") { key, value -> PropertyNumber(key, value.toInt()) }
-            entry("Top") { key, value -> PropertyNumber(key, value.toInt()) }
-            entry("Down") { key, value -> PropertyNumber(key, value.toInt()) }
+            entry("Left") { key, value -> PropertyNumber(key, value.toDouble()) }
+            entry("Right") { key, value -> PropertyNumber(key, value.toDouble()) }
+            entry("Top") { key, value -> PropertyNumber(key, value.toDouble()) }
+            entry("Down") { key, value -> PropertyNumber(key, value.toDouble()) }
         }
     }
 

@@ -213,5 +213,14 @@ class VuetaleUIHud(
             AppManager.removeApp(app.owner, app.type)
         }
     }
+
+    /**
+     * Push a reactive data value to the Vue side for this HUD's app.
+     * Delegates to [App.setData]. Safe to call from server threads; the app
+     * will forward the value to the V8 thread internally.
+     */
+    fun setData(key: String, value: Any?) {
+        app.setData(key, value)
+    }
 }
 

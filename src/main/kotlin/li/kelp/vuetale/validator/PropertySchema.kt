@@ -2,6 +2,7 @@
 
 import li.kelp.vuetale.javascript.asKtBoolean
 import li.kelp.vuetale.javascript.asKtInt
+import li.kelp.vuetale.javascript.asKtDouble
 import li.kelp.vuetale.javascript.asKtString
 import li.kelp.vuetale.javascript.isNullOrUndefined
 import li.kelp.vuetale.javascript.memberKeys
@@ -126,7 +127,7 @@ class Schema {
                     PropertyType.ColorString -> PropertyColor(property, value.asKtString())
                     PropertyType.Record -> PropertyRecord(property, mutableMapOf())
                     PropertyType.String -> PropertyString(property, value.asKtString())
-                    PropertyType.Number -> PropertyNumber(property, value.asKtInt())
+                    PropertyType.Number -> PropertyNumber(property, value.asKtDouble())
                     PropertyType.Boolean -> PropertyBoolean(property, value.asKtBoolean())
                     PropertyType.Ref -> {
                         val ref = field.ref!!

@@ -80,10 +80,10 @@ object StyleRegistry {
         return when (key) {
             "color" -> listOf(PropertyEnum("Color", value))
             "anchorLeft" -> listOf(
-                PropertyRecord("Anchor", mutableMapOf("left" to PropertyNumber("left", value.toInt())))
+                PropertyRecord("Anchor", mutableMapOf("left" to PropertyNumber("left", value.toDouble())))
             )
             "anchorRight" -> listOf(
-                PropertyRecord("Anchor", mutableMapOf("right" to PropertyNumber("right", value.toInt())))
+                PropertyRecord("Anchor", mutableMapOf("right" to PropertyNumber("right", value.toDouble())))
             )
             else -> listOf()
         }

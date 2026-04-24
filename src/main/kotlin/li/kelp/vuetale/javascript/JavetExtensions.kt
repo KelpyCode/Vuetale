@@ -34,6 +34,17 @@ fun V8Value.asKtInt(): Int = when (this) {
 }
 
 /**
+ * Convert any JS number-like value to a Kotlin [Double], preserving decimal precision.
+ */
+fun V8Value.asKtDouble(): Double = when (this) {
+    is V8ValueInteger -> value.toDouble()
+    is V8ValueDouble  -> value
+    is V8ValueLong    -> value.toDouble()
+    is V8ValueString  -> value.toDouble()
+    else -> throw IllegalArgumentException("Cannot convert ${javaClass.simpleName} to Double")
+}
+
+/**
  * Convert any JS boolean-like value to a Kotlin [Boolean].
  */
 fun V8Value.asKtBoolean(): Boolean = when (this) {
@@ -73,4 +84,3 @@ fun <T : V8Value> V8ValueObject.getMemberOrNull(key: String): T? {
         v as? T
     }
 }
-

@@ -186,7 +186,7 @@ class VueBridge(
                                     PropertyString(keyCapitalized, sv.value)
 
                                 else ->
-                                    PropertyNumber(keyCapitalized, sv.asKtInt())
+                                    PropertyNumber(keyCapitalized, sv.asKtDouble())
                             }
                             prop.origin = PropertyOrigin.Style
                             el.properties[keyCapitalized] = prop

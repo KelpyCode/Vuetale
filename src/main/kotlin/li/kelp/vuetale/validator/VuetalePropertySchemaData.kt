@@ -5,6 +5,7 @@ import com.caoccao.javet.values.primitive.V8ValueBoolean
 import com.caoccao.javet.values.primitive.V8ValueString
 import li.kelp.vuetale.javascript.asKtBoolean
 import li.kelp.vuetale.javascript.asKtInt
+import li.kelp.vuetale.javascript.asKtDouble
 import li.kelp.vuetale.javascript.asKtString
 import li.kelp.vuetale.javascript.isNullOrUndefined
 import li.kelp.vuetale.tree.Element
@@ -48,7 +49,7 @@ class VuetaleSchema {
                 else              -> value.asKtBoolean()
             }
             VuetalePropertyType.String  -> value.asKtString()
-            VuetalePropertyType.Number  -> value.asKtInt()
+            VuetalePropertyType.Number  -> value.asKtDouble()
         }
     }
 }
