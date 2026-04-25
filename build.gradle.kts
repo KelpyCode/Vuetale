@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "li.kelp"
-version = "1.0.16"
+version = "1.0.17"
 
 repositories {
     mavenCentral()
@@ -32,6 +32,14 @@ hytale {
     includeLocalMods.set(false)
     manifest {
         version.set(project.version.toString())
+    }
+}
+
+// Expand manifest placeholders (and other resources) with project properties
+tasks.processResources {
+    // Use simple token replacement for ${version}
+    filesMatching("**/manifest.json") {
+        expand("version" to project.version.toString())
     }
 }
 

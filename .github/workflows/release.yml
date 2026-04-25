@@ -72,7 +72,7 @@ jobs:
       version: ${{ needs.build.outputs.version }}
       tag-name: ${{ github.ref_name }}
       game-endpoint: "hytale"
-      game-versions: "1.0-SNAPSHOT"
+      game-versions: "2026.03.26-89796e57b"
     secrets: inherit
 
   publish-modtale:
@@ -82,7 +82,7 @@ jobs:
       artifact-id: "Vuetale"
       version: ${{ needs.build.outputs.version }}
       tag-name: ${{ github.ref_name }}
-      game-versions: "1.0-SNAPSHOT"
+      game-versions: "2026.03.26-89796e57b"
     secrets: inherit
 
   publish-gcs:
