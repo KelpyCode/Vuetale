@@ -191,7 +191,7 @@ jobs:
           cat metadata.json
           
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "https://${{ inputs.game-endpoint }}.curseforge.com/api/projects/$CURSEFORGE_PROJECT_ID/upload-file/" \
+            "https://curseforge.com/api/projects/$CURSEFORGE_PROJECT_ID/upload-file/" \
             -H "X-Api-Token: $CURSEFORGE_TOKEN" \
             -F "metadata=<metadata.json" \
             -F "file=@$JAR_PATH")
