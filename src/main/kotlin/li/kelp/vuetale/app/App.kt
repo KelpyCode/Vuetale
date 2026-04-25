@@ -142,8 +142,14 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
         if (dataCache.isNotEmpty()) {
             val engine = getEngine()
             dataCache.forEach { (key, value) ->
-                engine.runOnV8Thread {
-                    engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+                // Avoid scheduling work if the engine is shutting down.
+                if (!engine.isAlive) return@forEach
+                try {
+                    engine.runOnV8Thread {
+                        engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+                    }
+                } catch (e: Exception) {
+                    logger.warning("Failed to re-push cached data for app '${getId()}': ${e.message}")
                 }
             }
         }
@@ -185,8 +191,19 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
     fun setData(key: String, value: Any?) {
         dataCache[key] = value
         val engine = getEngine()
-        engine.runOnV8Thread {
-            engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+        if (!engine.isAlive) {
+            // Engine is shutting down; skip sending to V8. Data is still cached and
+            // will be re-pushed when the engine restarts.
+            logger.fine("Skipping setData('$key') because JSEngine is not alive")
+            return
+        }
+        try {
+            engine.runOnV8Thread {
+                engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+            }
+        } catch (e: Exception) {
+            // Swallow exceptions caused by engine shutdown; data remains in cache.
+            logger.warning("setData failed for app '${getId()}' key='$key': ${e.message}")
         }
     }
 

@@ -105,6 +105,12 @@ class JSEngine : AutoCloseable {
 
     private lateinit var v8Runtime: V8Runtime
 
+    /** True while this JSEngine instance is operational. Set to false early in close()
+     * so callers can avoid scheduling work against a shutting-down executor/runtime. */
+    @Volatile
+    var isAlive: Boolean = true
+        private set
+
     /** VueBridge instance shared with the JS side via globalThis.ktBridge. */
     lateinit var bridge: VueBridge
         private set
@@ -659,6 +665,9 @@ class JSEngine : AutoCloseable {
     }
 
     override fun close() {
+        // Mark this engine as no longer alive so callers know not to schedule new work.
+        isAlive = false
+
         // Stop the periodic tick first (let the current invocation finish).
         tickFuture.cancel(false)
 
