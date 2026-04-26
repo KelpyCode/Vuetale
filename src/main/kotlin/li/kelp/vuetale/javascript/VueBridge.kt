@@ -27,6 +27,7 @@ import li.kelp.vuetale.util.StringUtil.fromKebabCaseToPascalCase
 import li.kelp.vuetale.validator.*
 import java.lang.reflect.InvocationTargetException
 import java.util.logging.Logger
+import li.kelp.vuetale.javascript.DebugConfig
 import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
@@ -38,6 +39,9 @@ class VueBridge(
     private val converter: JavetProxyConverter
 ) {
     val logger: Logger = Logger.getLogger("VueBridge")
+
+    /** Expose the current debug flag to callers (JS can call ktBridge.isDebugEnabled()). */
+    fun isDebugEnabled(): Boolean = DebugConfig.enabled
 
     // Host callback registry: maps hostId -> original JVM callback object.
     // Callbacks are registered when Kotlin code calls App.setData with a function
@@ -58,7 +62,7 @@ class VueBridge(
     fun registerHostCallback(appId: String, callback: Any): String {
         val hostId = "${appId}-cb-${UUID.randomUUID()}"
         hostCallbacks[hostId] = callback
-        logger.fine("registerHostCallback: registered $hostId for app $appId")
+        if (DebugConfig.enabled) logger.info("[vuetaledebug] registerHostCallback: registered $hostId for app $appId")
         return hostId
     }
 
@@ -79,7 +83,7 @@ class VueBridge(
     fun unregisterHostCallbacksForApp(appId: String) {
         val prefix = "${appId}-cb-"
         hostCallbacks.keys.filter { it.startsWith(prefix) }.forEach { hostCallbacks.remove(it) }
-        logger.fine("unregisterHostCallbacksForApp: cleared callbacks for $appId")
+        if (DebugConfig.enabled) logger.info("[vuetaledebug] unregisterHostCallbacksForApp: cleared callbacks for $appId")
     }
 
     /**
@@ -181,11 +185,12 @@ class VueBridge(
     fun createElement(appId: String, tag: String): Element {
         val elementClass = Element.findElementClassByTag(tag)
         if (elementClass == null) {
-            logger.warning("Unknown tag '$tag', defaulting to 'group'")
+            if (DebugConfig.enabled) logger.warning("[vuetaledebug] Unknown tag '$tag', defaulting to 'group'")
             return GroupElement()
         }
         val el = ReflectUtil.createInstance<Element>(elementClass)
         el.app = AppManager.getApp(appId)
+        if (DebugConfig.enabled) logger.info("[vuetaledebug] createElement app=$appId tag=$tag -> ${elementClass.simpleName}")
         return el
     }
 
@@ -201,6 +206,7 @@ class VueBridge(
         el.properties["Text"] = PropertyString("Text", text)
         if (el.isVtSkipUpdate()) return  // Vuetale flag suppresses dirty flush
         val app = AppManager.getApp(appId)
+        if (DebugConfig.enabled) logger.info("[vuetaledebug] setElementText app=$appId el=${el.getId()} textPreview=${if (text.length>100) text.substring(0,100)+"..." else text}")
         app?.dirtyElementIds?.add(el.id)
         app?.markDirty()
     }
@@ -229,6 +235,7 @@ class VueBridge(
             }
         }
         if (actualParent != null) {
+            if (DebugConfig.enabled) logger.info("[vuetaledebug] insert app=$appId child=${child.id} parent=${actualParent.buildUniqueSelector()} anchor=${anchor?.id}")
             val existingIdx = actualParent.children.indexOf(child)
             val alreadyCorrect: Boolean = if (existingIdx < 0) {
                 false  // not in parent at all — must insert
@@ -269,7 +276,7 @@ class VueBridge(
                 app.markDirty()
             }
         } else {
-            logger.warning("insert: could not resolve parent for child ${child.id}")
+            if (DebugConfig.enabled) logger.warning("[vuetaledebug] insert: could not resolve parent for child ${child.id}")
         }
 
     }
@@ -286,6 +293,7 @@ class VueBridge(
         // child elements as orphans in EventRegistry, causing "event binding target
         // not found" errors when those stale bindings are re-sent on the next update.
         cleanupElementTree(app, element)
+        if (DebugConfig.enabled) logger.info("[vuetaledebug] remove app=$appId element=${element.buildUniqueSelector()}")
         app?.markDirty()
     }
 
@@ -305,6 +313,11 @@ class VueBridge(
     }
 
     fun patchProp(appId: String, el: Element, key: String, prevValue: V8Value, nextValue: V8Value) {
+        if (DebugConfig.enabled) {
+            val pv = try { if (prevValue.isNullOrUndefined) "<null>" else prevValue.javaClass.simpleName } catch (e: Exception) { "<err>" }
+            val nv = try { if (nextValue.isNullOrUndefined) "<null>" else nextValue.javaClass.simpleName } catch (e: Exception) { "<err>" }
+            logger.fine("[vuetaledebug] patchProp app=$appId el=${el.getId()} key=$key prev=$pv next=$nv")
+        }
         fun clearPropertiesWithOrigin(origin: PropertyOrigin) {
             el.properties = el.properties.filter { it.value.origin != origin }.toMutableMap()
         }
@@ -409,6 +422,7 @@ class VueBridge(
                         // Vuetale props are stored on the element but never rendered
                         // and never trigger dirty/re-render.
                         el.vuetaleProperties[keyCapitalized] = vtPropertySchema.parse(keyCapitalized, nextValue)
+                        if (DebugConfig.enabled) logger.info("[vuetaledebug] patchProp vuetaleProp app=$appId el=${el.getId()} prop=$keyCapitalized")
                     } else if (nextValue.isNullOrUndefined) {
                         el.properties.remove(keyCapitalized)
                         // Removal can't be expressed as a targeted set command – need full re-render
@@ -432,6 +446,7 @@ class VueBridge(
                         }
                     } else {
                         logger.warning("Unknown property '$keyCapitalized', ignoring")
+                            if (DebugConfig.enabled) logger.info("[vuetaledebug] patchProp unknownProperty app=$appId el=${el.getId()} prop=$keyCapitalized")
                     }
                 }
             }

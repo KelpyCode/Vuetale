@@ -6,6 +6,11 @@
  * - Decimal numbers preserve precision with trailing zeros removed (e.g., "1.5", "3.14159")
  */
 class PropertyNumber(name: String, var value: Number?) : Property(name) {
+
+    override fun toString(): String {
+        return "(Number) $name: ${render()}"
+    }
+
     override fun render(): String? {
         if (value == null) {
             return null

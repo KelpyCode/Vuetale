@@ -6,6 +6,7 @@ import com.hypixel.hytale.server.core.universe.PlayerRef
 import li.kelp.vuetale.app.App
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.app.AppType
+import li.kelp.vuetale.javascript.DebugConfig
 import li.kelp.vuetale.tree.Element
 import li.kelp.vuetale.property.*
 import java.util.concurrent.CompletableFuture
@@ -74,6 +75,7 @@ class VuetaleUIHud(
         // 3. Inject the entire rendered tree into #App
         val rendered = app.root.render(0)
         uiCommandBuilder.appendInline("#App", rendered)
+        if (DebugConfig.enabled) logger.info ("[vuetaledebug] Initial render:\n$rendered")
 
         // Clear stale mount-time tracking (same reasoning as VuetaleUIPage)
         app.hasStructuralChanges = false
@@ -102,6 +104,7 @@ class VuetaleUIHud(
                 val cmdBuilder = UICommandBuilder()
                     .clear("#App")
                     .appendInline("#App", app.root.render(0))
+
 
                 sendUpdateAsync(cmdBuilder, false)
             } else if (dirtyIds.isNotEmpty()) {
@@ -141,6 +144,8 @@ class VuetaleUIHud(
      * keep the V8 tick non-blocking.
      */
     private fun sendUpdateAsync(cmdBuilder: UICommandBuilder, lockInterface: Boolean) {
+        if (DebugConfig.enabled) logger.info ("[vuetaledebug] Update render:\n${app.root.render(0)}")
+
         CompletableFuture.runAsync {
             if (isActive) runCatching { update(lockInterface, cmdBuilder) }
         }

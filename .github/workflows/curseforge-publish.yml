@@ -155,9 +155,15 @@ jobs:
           echo "Game Versions: ${{ inputs.game-versions }}"
           
           # Build game versions JSON block (only if provided)
+          # Convert comma-separated values into an array of integers.
+          # Trim whitespace and skip entries that cannot be parsed as numbers.
           GAME_VERSIONS_BLOCK=""
           if [[ -n "${{ inputs.game-versions }}" ]]; then
-            GAME_VERSIONS_JSON=$(echo "${{ inputs.game-versions }}" | tr ',' '\n' | jq -R . | jq -s .)
+            GAME_VERSIONS_JSON=$(echo "${{ inputs.game-versions }}" \
+              | tr ',' '\n' \
+              | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+              | jq -R 'select(length>0) | (try tonumber catch null) | select(.!=null)' \
+              | jq -s .)
             GAME_VERSIONS_BLOCK=",\"gameVersions\": $GAME_VERSIONS_JSON"
           fi
           

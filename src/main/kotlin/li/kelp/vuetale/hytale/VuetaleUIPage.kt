@@ -13,6 +13,7 @@ import li.kelp.vuetale.app.App
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.app.AppType
 import com.hypixel.hytale.protocol.packets.interface_.CustomUIEventBindingType
+import li.kelp.vuetale.javascript.DebugConfig
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.property.*
 import li.kelp.vuetale.tree.Element
@@ -108,6 +109,7 @@ class VuetaleUIPage(
         // 3. Inject the entire rendered tree into #App
         val rendered = app.root.render(0) // strip newlines to avoid Hytale parser issues
         uiCommandBuilder.appendInline("#App", rendered)
+        if (DebugConfig.enabled) logger.info ("[vuetaledebug] Initial render:\n$rendered")
 
         // 4. Register all Vue event bindings collected during mount
         registerEventBindings(uiEventBuilder)
@@ -203,12 +205,16 @@ class VuetaleUIPage(
      * forever.  Dispatching here keeps the V8 tick non-blocking.
      */
     private fun sendUpdateAsync(cmdBuilder: UICommandBuilder, evtBuilder: UIEventBuilder, lockInterface: Boolean) {
+        if (DebugConfig.enabled) logger.info ("[vuetaledebug] Update render:\n${app.root.render(0)}")
+
         CompletableFuture.runAsync {
             if (isActive) runCatching { sendUpdate(cmdBuilder, evtBuilder, lockInterface) }
         }
     }
 
     private fun sendUpdateAsync(cmdBuilder: UICommandBuilder) {
+        if (DebugConfig.enabled) logger.info ("[vuetaledebug] Update render:\n${app.root.render(0)}")
+
         CompletableFuture.runAsync {
             if (isActive) runCatching { sendUpdate(cmdBuilder, false) }
         }
@@ -248,7 +254,7 @@ class VuetaleUIPage(
         prop: Property
     ): Boolean {
         val path = "$elementSelector.${prop.name}"
-        return when (prop) {
+        val ret = when (prop) {
             is PropertyString -> {
                 val v = prop.value
                 if (v != null) builder.set(path, v) else builder.setNull(path)
@@ -289,6 +295,16 @@ class VuetaleUIPage(
 
             else -> false  // unknown type – trigger fallback
         }
+
+        if (DebugConfig.enabled) logger.info (
+                "[vuetaledebug] Changing property ${prop.name} of $elementSelector to ${prop.toString()}, Render:\n${
+                    app.root.render(
+                        0
+                    )
+                }"
+                )
+
+        return ret
     }
 
     // ── handleDataEvent ────────────────────────────────────────────────────

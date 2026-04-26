@@ -3,6 +3,7 @@ package li.kelp.vuetale
 import com.hypixel.hytale.server.core.plugin.JavaPlugin
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit
 import li.kelp.vuetale.commands.VuetaleCommand
+import li.kelp.vuetale.commands.VuetaleDebugCommand
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.javascript.ModuleRegistry
 
@@ -25,6 +26,7 @@ class Plugin(init: JavaPluginInit) : JavaPlugin(init) {
         //app.mount()
 
         this.getCommandRegistry().registerCommand(VuetaleCommand())
+        this.getCommandRegistry().registerCommand(VuetaleDebugCommand())
     }
 
     override fun shutdown() {
