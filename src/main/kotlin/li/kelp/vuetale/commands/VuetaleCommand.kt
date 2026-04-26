@@ -4,23 +4,27 @@ import com.hypixel.hytale.component.Ref
 import com.hypixel.hytale.component.Store
 import com.hypixel.hytale.server.core.command.system.CommandContext
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractPlayerCommand
-import com.hypixel.hytale.server.core.entity.UUIDComponent
 import com.hypixel.hytale.server.core.entity.entities.Player
-import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent
 import com.hypixel.hytale.server.core.universe.PlayerRef
 import com.hypixel.hytale.server.core.universe.world.World
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore
-import li.kelp.vuetale.app.AppType
 import li.kelp.vuetale.app.PlayerUiManager
-import li.kelp.vuetale.hytale.VuetaleUIPage
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.logging.Logger
 import javax.annotation.Nonnull
 
 
-class TestCommand : AbstractPlayerCommand("vuetale", "Super test command!") {
+class VuetaleCommand : AbstractPlayerCommand("vuetale", "Super test command!") {
+
+    val logger = Logger.getLogger("VuetaleCommand")
+
+    fun testPropagated() {
+        logger.warning("This is a test log from VuetaleCommand.testPropagated()!")
+    }
+
+    fun testWithArgsAndReturn(x: Int, y: String): String {
+        logger.warning("This is a test log from VuetaleCommand.testWithArgsAndReturn() with args: $x, $y!")
+        return "Received args: $x and $y"
+    }
 
     protected override fun execute(
         @Nonnull commandContext: CommandContext,
@@ -52,6 +56,8 @@ class TestCommand : AbstractPlayerCommand("vuetale", "Super test command!") {
 
         ui.setData("test", "Hello this is a test!")
         ui.setData("test2", Abc("abc", 123))
+        ui.setData("testFn", { testPropagated() })
+        ui.setData("testFn2", this::testWithArgsAndReturn)
 
     }
 }

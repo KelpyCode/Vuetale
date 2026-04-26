@@ -129,6 +129,14 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
         // closeAll() wraps each V8 callback.close() in runCatching internally,
         // so this is safe even when V8 is already torn down.
         eventRegistry.closeAll()
+        // Unregister any host callbacks associated with this app to avoid memory leaks
+        runCatching {
+            try {
+                JSEngine.instance.bridge.unregisterHostCallbacksForApp(getId())
+            } catch (e: Exception) {
+                logger.fine("Failed to unregister host callbacks for ${getId()}: ${e.message}")
+            }
+        }
     }
 
     /**
@@ -145,8 +153,17 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
                 // Avoid scheduling work if the engine is shutting down.
                 if (!engine.isAlive) return@forEach
                 try {
-                    engine.runOnV8Thread {
-                        engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+                    // If the cached value is a JVM function, we must register it again
+                    // in the new engine to obtain a fresh hostId marker.
+                    if (value != null && isJvmFunction(value)) {
+                        val hostId = JSEngine.instance.bridge.registerHostCallback(getId(), value)
+                        engine.runOnV8Thread {
+                            engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, mapOf("_vtHostFnId" to hostId)).close()
+                        }
+                    } else {
+                        engine.runOnV8Thread {
+                            engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+                        }
                     }
                 } catch (e: Exception) {
                     logger.warning("Failed to re-push cached data for app '${getId()}': ${e.message}")
@@ -198,13 +215,33 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
             return
         }
         try {
-            engine.runOnV8Thread {
-                engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+            // If value looks like a JVM function/functional object, register it and
+            // send a hostFn marker to JS instead of the raw object.
+            if (value != null && isJvmFunction(value)) {
+                val hostId = JSEngine.instance.bridge.registerHostCallback(getId(), value)
+                engine.runOnV8Thread {
+                    engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, mapOf("_vtHostFnId" to hostId)).close()
+                }
+            } else {
+                engine.runOnV8Thread {
+                    engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+                }
             }
         } catch (e: Exception) {
             // Swallow exceptions caused by engine shutdown; data remains in cache.
             logger.warning("setData failed for app '${getId()}' key='$key': ${e.message}")
         }
+    }
+
+    private fun isJvmFunction(value: Any): Boolean {
+        // Accept Kotlin FunctionN and common Java functional interfaces
+        val cls = value.javaClass
+        if (cls.name.startsWith("kotlin.jvm.functions")) return true
+        // Common single-method interfaces: Runnable, Callable, Consumer, Function
+        val singleAbstract = cls.methods.count { java.lang.reflect.Modifier.isAbstract(it.modifiers) }
+        // crude: check for any 'invoke' method or 'apply' etc.
+        if (cls.methods.any { it.name == "invoke" || it.name == "apply" || it.name == "accept" || it.name == "call" }) return true
+        return false
     }
 
     fun mount() {
@@ -241,6 +278,14 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
         getEngine().evalScript("_vt.getUserApp('${getId()}').unmount();")
         isMounted = false
         eventRegistry.closeAll()
+        // Also unregister any host callbacks tied to this app
+        runCatching {
+            try {
+                JSEngine.instance.bridge.unregisterHostCallbacksForApp(getId())
+            } catch (e: Exception) {
+                logger.fine("Failed to unregister host callbacks for ${getId()} during unmount: ${e.message}")
+            }
+        }
     }
 
     init {

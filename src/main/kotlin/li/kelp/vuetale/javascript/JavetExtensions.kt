@@ -14,11 +14,11 @@ val V8Value.isNullOrUndefined: Boolean
  * Throws for non-primitive types; callers should guard with type checks first.
  */
 fun V8Value.asKtString(): String = when (this) {
-    is V8ValueString  -> value
+    is V8ValueString -> value
     is V8ValueInteger -> value.toString()
-    is V8ValueDouble  -> value.toString()
+    is V8ValueDouble -> value.toString()
     is V8ValueBoolean -> value.toString()
-    is V8ValueLong    -> value.toString()
+    is V8ValueLong -> value.toString()
     else -> throw IllegalArgumentException("Cannot convert ${javaClass.simpleName} to String")
 }
 
@@ -27,9 +27,9 @@ fun V8Value.asKtString(): String = when (this) {
  */
 fun V8Value.asKtInt(): Int = when (this) {
     is V8ValueInteger -> value
-    is V8ValueDouble  -> value.toInt()
-    is V8ValueLong    -> value.toInt()
-    is V8ValueString  -> value.toInt()
+    is V8ValueDouble -> value.toInt()
+    is V8ValueLong -> value.toInt()
+    is V8ValueString -> value.toInt()
     else -> throw IllegalArgumentException("Cannot convert ${javaClass.simpleName} to Int")
 }
 
@@ -38,9 +38,9 @@ fun V8Value.asKtInt(): Int = when (this) {
  */
 fun V8Value.asKtDouble(): Double = when (this) {
     is V8ValueInteger -> value.toDouble()
-    is V8ValueDouble  -> value
-    is V8ValueLong    -> value.toDouble()
-    is V8ValueString  -> value.toDouble()
+    is V8ValueDouble -> value
+    is V8ValueLong -> value.toDouble()
+    is V8ValueString -> value.toDouble()
     else -> throw IllegalArgumentException("Cannot convert ${javaClass.simpleName} to Double")
 }
 
@@ -84,3 +84,5 @@ fun <T : V8Value> V8ValueObject.getMemberOrNull(key: String): T? {
         v as? T
     }
 }
+
+

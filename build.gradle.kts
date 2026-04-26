@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "li.kelp"
-version = "1.0.17"
+version = "1.0.18"
 
 repositories {
     mavenCentral()
@@ -43,7 +43,6 @@ tasks.processResources {
     }
 }
 
-// No engine-specific JVM flags required for Javet/V8.
 tasks.withType<JavaExec>().configureEach {
 }
 

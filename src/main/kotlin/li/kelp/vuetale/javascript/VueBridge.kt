@@ -24,6 +24,11 @@ import li.kelp.vuetale.util.StringUtil.capitalize
 import li.kelp.vuetale.util.StringUtil.fromKebabCaseToPascalCase
 import li.kelp.vuetale.validator.*
 import java.util.logging.Logger
+import java.util.UUID
+import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
+import java.util.function.BiFunction
+import java.util.function.Consumer
 
 class VueBridge(
     private val v8Runtime: V8Runtime,
@@ -31,10 +36,138 @@ class VueBridge(
 ) {
     val logger: Logger = Logger.getLogger("VueBridge")
 
+    // Host callback registry: maps hostId -> original JVM callback object.
+    // Callbacks are registered when Kotlin code calls App.setData with a function
+    // and are invoked synchronously from JS via ktBridge.invokeHostCallback.
+    private val hostCallbacks: ConcurrentHashMap<String, Any> = ConcurrentHashMap()
+
     // ── Styles ─────────────────────────────────────────────────────────────
 
     fun registerStyles(key: String, value: V8Value) {
         StyleRegistry.registerStyle(key, value as V8ValueObject)
+    }
+
+    /**
+     * Register a JVM callback for the given app and return a stable hostId.
+     * The returned hostId is passed to JS as a marker; JS creates a wrapper that
+     * calls ktBridge.invokeHostCallback(hostId, ...args) to invoke the JVM callback.
+     */
+    fun registerHostCallback(appId: String, callback: Any): String {
+        val hostId = "${appId}-cb-${UUID.randomUUID()}"
+        hostCallbacks[hostId] = callback
+        logger.fine("registerHostCallback: registered $hostId for app $appId")
+        return hostId
+    }
+
+    /**
+     * Invoke a previously-registered host callback. Called from JS synchronously.
+     * Attempts to call a sensible method on the underlying JVM object (invoke, apply,
+     * accept, run, call, etc.) and returns its result back to the caller.
+     */
+    fun invokeHostCallback(hostId: String, vararg args: Any?): Any? {
+        val cb = hostCallbacks[hostId]
+            ?: throw IllegalStateException("Host callback not found: $hostId")
+        return callCallback(cb, args)
+    }
+
+    /**
+     * Unregister all host callbacks for a given app id. Used during app cleanup/hot-reload.
+     */
+    fun unregisterHostCallbacksForApp(appId: String) {
+        val prefix = "${appId}-cb-"
+        hostCallbacks.keys.filter { it.startsWith(prefix) }.forEach { hostCallbacks.remove(it) }
+        logger.fine("unregisterHostCallbacksForApp: cleared callbacks for $appId")
+    }
+
+    private fun callCallback(callback: Any, args: Array<out Any?>): Any? {
+        try {
+            // Direct support for Kotlin function interfaces
+            when (callback) {
+                is Function0<*> -> return callback.invoke()
+                is Function1<*, *> -> return (callback as Function1<Any?, Any?>).invoke(args.getOrNull(0))
+                is Function2<*, *, *> -> return (callback as Function2<Any?, Any?, Any?>).invoke(
+                    args.getOrNull(0),
+                    args.getOrNull(1)
+                )
+
+                is Function3<*, *, *, *> -> return (callback as Function3<Any?, Any?, Any?, Any?>).invoke(
+                    args.getOrNull(
+                        0
+                    ), args.getOrNull(1), args.getOrNull(2)
+                )
+
+                is Function4<*, *, *, *, *> -> return (callback as Function4<Any?, Any?, Any?, Any?, Any?>).invoke(
+                    args.getOrNull(
+                        0
+                    ), args.getOrNull(1), args.getOrNull(2), args.getOrNull(3)
+                )
+
+                is Function5<*, *, *, *, *, *> -> return (callback as Function5<Any?, Any?, Any?, Any?, Any?, Any?>).invoke(
+                    args.getOrNull(0),
+                    args.getOrNull(1),
+                    args.getOrNull(2),
+                    args.getOrNull(3),
+                    args.getOrNull(4)
+                )
+
+                is Function6<*, *, *, *, *, *, *> -> return (callback as Function6<Any?, Any?, Any?, Any?, Any?, Any?, Any?>).invoke(
+                    args.getOrNull(0),
+                    args.getOrNull(1),
+                    args.getOrNull(2),
+                    args.getOrNull(3),
+                    args.getOrNull(4),
+                    args.getOrNull(5)
+                )
+
+                is Runnable -> {
+                    callback.run(); return null
+                }
+
+                is Callable<*> -> return (callback as Callable<Any?>).call()
+                is Consumer<*> -> {
+                    (callback as Consumer<Any?>).accept(args.getOrNull(0)); return null
+                }
+
+                is java.util.function.Function<*, *> -> return (callback as java.util.function.Function<Any?, Any?>).apply(
+                    args.getOrNull(0)
+                )
+
+                is BiFunction<*, *, *> -> return (callback as BiFunction<Any?, Any?, Any?>).apply(
+                    args.getOrNull(0),
+                    args.getOrNull(1)
+                )
+            }
+
+            // Fallback: reflection. Make target method accessible to handle lambda classes with restricted visibility.
+            val cls = callback.javaClass
+            val candidates = listOf("invoke", "apply", "accept", "call", "run", "execute")
+            for (name in candidates) {
+                val m = cls.methods.firstOrNull { it.name == name && it.parameterCount == args.size }
+                if (m != null) {
+                    m.isAccessible = true
+                    return try {
+                        m.invoke(callback, *args)
+                    } catch (e: Exception) {
+                        throw e.cause ?: e
+                    }
+                }
+            }
+
+            val fallback =
+                cls.methods.firstOrNull { it.declaringClass != Any::class.java && it.parameterCount == args.size }
+            if (fallback != null) {
+                fallback.isAccessible = true
+                return try {
+                    fallback.invoke(callback, *args)
+                } catch (e: Exception) {
+                    throw e.cause ?: e
+                }
+            }
+
+            throw IllegalArgumentException("No callable method found on host callback of type ${cls.name}")
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            throw e.cause ?: e
+        }
     }
 
     // ── Renderer host API ──────────────────────────────────────────────────
