@@ -62,7 +62,8 @@ abstract class Element(var tag: String) {
     @JvmName("getUniqueId")
     fun getId(): String {
         if (customId != null) {
-            return "$customId${id.take(8)}"
+            val customIdClean = customId!!.lowercase().replace(Regex("[^a-z0-9]"), "")
+            return "$customIdClean${id.take(8)}"
         }
         return id
     }

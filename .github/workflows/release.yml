@@ -72,7 +72,7 @@ jobs:
       version: ${{ needs.build.outputs.version }}
       tag-name: ${{ github.ref_name }}
       game-endpoint: "hytale"
-      game-versions: "2026.03.26-89796e57b"
+      game-versions: 1
     secrets: inherit
 
   publish-modtale:

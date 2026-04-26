@@ -3,12 +3,14 @@
 import com.caoccao.javet.interop.V8Runtime
 import com.caoccao.javet.interop.converters.JavetProxyConverter
 import com.caoccao.javet.values.V8Value
+import com.caoccao.javet.values.primitive.V8ValueBoolean
 import com.caoccao.javet.values.primitive.V8ValueString
 import com.caoccao.javet.values.reference.V8ValueFunction
 import com.caoccao.javet.values.reference.V8ValueObject
 import li.kelp.vuetale.app.App
 import li.kelp.vuetale.app.AppManager
 import li.kelp.vuetale.events.VueEventMapper
+import li.kelp.vuetale.property.Property
 import li.kelp.vuetale.property.PropertyBoolean
 import li.kelp.vuetale.property.PropertyNameMap
 import li.kelp.vuetale.property.PropertyNumber
@@ -23,6 +25,7 @@ import li.kelp.vuetale.util.ReflectUtil
 import li.kelp.vuetale.util.StringUtil.capitalize
 import li.kelp.vuetale.util.StringUtil.fromKebabCaseToPascalCase
 import li.kelp.vuetale.validator.*
+import java.lang.reflect.InvocationTargetException
 import java.util.logging.Logger
 import java.util.UUID
 import java.util.concurrent.Callable
@@ -79,6 +82,9 @@ class VueBridge(
         logger.fine("unregisterHostCallbacksForApp: cleared callbacks for $appId")
     }
 
+    /**
+     * dont question it, it works
+     */
     private fun callCallback(callback: Any, args: Array<out Any?>): Any? {
         try {
             // Direct support for Kotlin function interfaces
@@ -165,7 +171,7 @@ class VueBridge(
             }
 
             throw IllegalArgumentException("No callable method found on host callback of type ${cls.name}")
-        } catch (e: java.lang.reflect.InvocationTargetException) {
+        } catch (e: InvocationTargetException) {
             throw e.cause ?: e
         }
     }
@@ -311,11 +317,11 @@ class VueBridge(
                     nextObj.memberKeys().forEach { styleKey ->
                         nextObj.get<V8Value>(styleKey).use { sv ->
                             val keyCapitalized = styleKey.capitalize()
-                            val prop: li.kelp.vuetale.property.Property = when (sv) {
-                                is com.caoccao.javet.values.primitive.V8ValueBoolean ->
+                            val prop: Property = when (sv) {
+                                is V8ValueBoolean ->
                                     PropertyBoolean(keyCapitalized, sv.value)
 
-                                is com.caoccao.javet.values.primitive.V8ValueString ->
+                                is V8ValueString ->
                                     PropertyString(keyCapitalized, sv.value)
 
                                 else ->
@@ -346,7 +352,7 @@ class VueBridge(
 
             "id" -> {
                 if (!nextValue.isNullOrUndefined) {
-                    el.customId = nextValue.asKtString()
+                    el.customId = nextValue.asKtString().replace(".", "")
                 }
             }
 
