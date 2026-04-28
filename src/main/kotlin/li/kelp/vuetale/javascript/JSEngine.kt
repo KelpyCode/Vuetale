@@ -11,10 +11,12 @@ import com.caoccao.javet.values.reference.IV8Module
 import com.caoccao.javet.values.reference.V8ValueObject
 import li.kelp.vuetale.app.AppManager
 import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.logging.Logger
 
@@ -190,6 +192,21 @@ class JSEngine : AutoCloseable {
     /** Future for the repeating tick task – kept so we can cancel it on close(). */
     private val tickFuture: ScheduledFuture<*>
 
+    // JVM-side timer scheduler: timers are scheduled on this executor and when they
+    // fire we dispatch the callback onto the V8 thread via runOnV8Thread. This
+    // prevents timer scheduling from depending on V8's internal timer/loop and
+    // gives us explicit cancellation/observability control.
+    private val timerExecutor: ScheduledExecutorService = run {
+        val tFactory = { r: Runnable -> Thread(r, "vuetale-timers").also { it.isDaemon = true } }
+        Executors.newScheduledThreadPool(2) { r -> tFactory(r) }
+    }
+
+    // Map of timer id -> ScheduledFuture
+    private val timerFutures: MutableMap<Int, ScheduledFuture<*>> = ConcurrentHashMap()
+
+    // Per-timer running guard (to avoid overlapping interval executions)
+    private val timerRunning: MutableMap<Int, AtomicBoolean> = ConcurrentHashMap()
+
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
     init {
@@ -198,7 +215,10 @@ class JSEngine : AutoCloseable {
         v8Executor.submit(::initOnV8Thread).get()
 
         // 2. Start the Node.js event-loop pump: every 50 ms (~20 Hz).
-        tickFuture = v8Executor.scheduleAtFixedRate(::tickInternal, 50, 50, TimeUnit.MILLISECONDS)
+        // Use scheduleWithFixedDelay so a long-running tick does not cause the
+        // executor to queue up many concurrent invocations that all run as
+        // soon as the V8 thread becomes free (this causes timeout "bursts").
+        tickFuture = v8Executor.scheduleWithFixedDelay(::tickInternal, 50, 50, TimeUnit.MILLISECONDS)
 
         // 3. Start the hot-reload file watcher (no-op outside dev mode).
         HotReloadManager.startIfNeeded()
@@ -234,41 +254,61 @@ class JSEngine : AutoCloseable {
         // created by Vue/loader.js are tracked.
         runCatching {
             v8Runtime.getExecutor(
+                // Inject a lightweight JS shim that delegates timer scheduling to the
+                // Kotlin-side ktTimer object. The ktTimer.schedule(id, delayMs, isInterval)
+                // and ktTimer.cancel(id) functions are implemented below in Kotlin.
                 """
                 (function() {
                     if (globalThis.__vt_timers_installed) return;
                     globalThis.__vt_timers_installed = true;
-                    globalThis.__vt_timers = new Set();
-                    const _setTimeout = globalThis.setTimeout;
-                    const _setInterval = globalThis.setInterval;
+                    globalThis.__vt_timer_callbacks = Object.create(null);
+                    globalThis.__vt_nextTimerId = 1;
 
                     globalThis.setTimeout = function(fn, t, ...args) {
-                        const id = _setTimeout(function(...a) {
-                            try { fn(...a); } catch (e) { console.error('__vt timer error', e); }
-                            try { globalThis.__vt_timers.delete(id); } catch (e) {}
-                        }, t, ...args);
-                        try { globalThis.__vt_timers.add(id); } catch (e) {}
+                        const id = globalThis.__vt_nextTimerId++;
+                        globalThis.__vt_timer_callbacks[id] = function(...a) { try { fn(...a); } catch(e){ console.error('__vt timer callback error', e); } };
+                        try { ktTimer.schedule(id, t || 0, false); } catch (e) { console.error('ktTimer.schedule failed', e); }
                         return id;
                     };
 
                     globalThis.setInterval = function(fn, t, ...args) {
-                        const id = _setInterval(fn, t, ...args);
-                        try { globalThis.__vt_timers.add(id); } catch (e) {}
+                        const id = globalThis.__vt_nextTimerId++;
+                        globalThis.__vt_timer_callbacks[id] = function(...a) { try { fn(...a); } catch(e){ console.error('__vt interval callback error', e); } };
+                        try { ktTimer.schedule(id, t || 0, true); } catch (e) { console.error('ktTimer.schedule failed', e); }
                         return id;
                     };
 
-                    globalThis.__vt_clearTimers = function() {
+                    globalThis.clearTimeout = globalThis.clearInterval = function(id) {
+                        try { ktTimer.cancel(id); } catch (e) { /* ignore */ }
+                        try { delete globalThis.__vt_timer_callbacks[id]; } catch (e) {}
+                    };
+
+                    globalThis.__vt_invokeTimer = function(id) {
                         try {
-                            for (const id of Array.from(globalThis.__vt_timers || [])) {
-                                try { clearTimeout(id); clearInterval(id); } catch (e) {}
-                            }
-                            globalThis.__vt_timers && globalThis.__vt_timers.clear();
-                        } catch (e) { /* ignore */ }
+                            const cb = globalThis.__vt_timer_callbacks[id];
+                            if (cb) cb();
+                        } catch (e) { console.error('__vt invoke error', e); }
                     };
                 })();
             """.trimIndent()
             ).executeVoid()
         }
+
+        // Expose ktTimer to JS: a tiny proxy object that forwards schedule/cancel
+        // requests to the JVM. Implemented using Javet proxy conversion via the
+        // converter already set on v8Runtime.
+        val ktTimer = object {
+            @Suppress("unused")
+            fun schedule(id: Int, delayMs: Int, isInterval: Boolean) {
+                scheduleJsTimer(id, delayMs.toLong(), isInterval)
+            }
+
+            @Suppress("unused")
+            fun cancel(id: Int) {
+                cancelJsTimer(id)
+            }
+        }
+        v8Runtime.globalObject.set("ktTimer", ktTimer)
 
         // Load Vue as a plain IIFE script -> sets globalThis.Vue.
         // In dev mode with useDevVue=true, prefer vue.dev.js (full warnings + __VUE_HMR_RUNTIME__).
@@ -339,8 +379,13 @@ class JSEngine : AutoCloseable {
 
     /** Called repeatedly by the scheduler on the V8 thread. Pumps the Node.js event loop. */
     private fun tickInternal() {
+        val start = System.nanoTime()
         runCatching { v8Runtime.await(V8AwaitMode.RunOnce) }
             .onFailure { logger.warning("V8 tick error: ${it.message}") }
+        val durMs = (System.nanoTime() - start) / 1_000_000
+        if (durMs > 200) {
+            logger.warning("V8 tick took ${durMs}ms — long-running JS/host callback may be blocking the V8 thread")
+        }
 
         // After the full Vue render batch has run, notify any dirty apps exactly once.
         AppManager.apps.values.forEach { app ->
@@ -352,6 +397,57 @@ class JSEngine : AutoCloseable {
         }
     }
 
+    // Schedule a JVM-side timer that invokes the JS callback via runOnV8Thread.
+    private fun scheduleJsTimer(cbId: Int, delayMs: Long, isInterval: Boolean) {
+        if (!isAlive) return
+        val runningFlag = timerRunning.computeIfAbsent(cbId) { java.util.concurrent.atomic.AtomicBoolean(false) }
+
+        if (isInterval) {
+            val future = timerExecutor.scheduleAtFixedRate({
+                // Avoid overlapping interval runs
+                if (!runningFlag.compareAndSet(false, true)) return@scheduleAtFixedRate
+                try {
+                    runOnV8Thread {
+                        try {
+                            v8Runtime.getExecutor("globalThis.__vt_invokeTimer(${cbId});").executeVoid()
+                        } catch (e: Exception) {
+                            logger.warning("Error invoking timer callback $cbId: ${e.message}")
+                        }
+                    }
+                } finally {
+                    runningFlag.set(false)
+                }
+            }, delayMs, delayMs, TimeUnit.MILLISECONDS)
+            timerFutures[cbId] = future
+        } else {
+            val future = timerExecutor.schedule({
+                try {
+                    runOnV8Thread {
+                        try {
+                            v8Runtime.getExecutor("globalThis.__vt_invokeTimer(${cbId});").executeVoid()
+                        } catch (e: Exception) {
+                            logger.warning("Error invoking timer callback $cbId: ${e.message}")
+                        }
+                    }
+                } finally {
+                    // one-shot - cleanup
+                    timerFutures.remove(cbId)
+                    timerRunning.remove(cbId)
+                    runOnV8Thread {
+                        v8Runtime.getExecutor("try { delete globalThis.__vt_timer_callbacks[${cbId}]; } catch(e){};")
+                            ?.executeVoid()
+                    }
+                }
+            }, delayMs, TimeUnit.MILLISECONDS)
+            timerFutures[cbId] = future
+        }
+    }
+
+    private fun cancelJsTimer(cbId: Int) {
+        timerFutures.remove(cbId)?.cancel(false)
+        timerRunning.remove(cbId)
+    }
+
     // ── Public API (thread-safe – dispatches to V8 thread) ────────────────
 
     /**
@@ -359,8 +455,14 @@ class JSEngine : AutoCloseable {
      * and return its result.  Use this whenever you need to call a raw V8 API
      * from outside the V8 thread (e.g. accessing [loaderCtx] directly).
      */
-    fun <T> runOnV8Thread(block: () -> T): T =
-        v8Executor.submit(Callable { block() }).get()
+    fun <T> runOnV8Thread(block: () -> T): T {
+        // If caller is already the V8 thread, run directly to avoid submitting
+        // a task that would wait for the same thread and cause a deadlock.
+        if (Thread.currentThread().name == "vuetale-v8") {
+            return block()
+        }
+        return v8Executor.submit(Callable { block() }).get()
+    }
 
     /**
      * Evaluate a plain (non-module) JavaScript snippet on the V8 thread.
@@ -679,13 +781,27 @@ class JSEngine : AutoCloseable {
             // First, clear any outstanding JS timers so their callbacks cannot run
             // against the soon-to-be-closed runtime (these callbacks often reference
             // global ktBridge and would crash after hot-reload).
-            runCatching { v8Runtime.getExecutor("if (typeof __vt_clearTimers === 'function') { try { __vt_clearTimers(); } catch(e){} };").executeVoid() }
+            runCatching {
+                v8Runtime.getExecutor("if (typeof __vt_clearTimers === 'function') { try { __vt_clearTimers(); } catch(e){} };")
+                    .executeVoid()
+            }
             // Remove references that JS callbacks may try to access.
             runCatching { v8Runtime.globalObject.delete("ktBridge") }
             runCatching { if (::loaderCtx.isInitialized) loaderCtx.close() }
             runCatching { v8Runtime.globalObject.delete("ktConsole") }
             runCatching { v8Runtime.close() }
         }.get()
+
+        // Cancel any JVM-scheduled timers and shutdown the timer executor.
+        try {
+            timerFutures.values.forEach { runCatching { it.cancel(false) } }
+            timerFutures.clear()
+            timerRunning.clear()
+            timerExecutor.shutdownNow()
+            timerExecutor.awaitTermination(2, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            logger.warning("Error shutting down timerExecutor: ${e.message}")
+        }
 
         v8Executor.shutdown()
         v8Executor.awaitTermination(5, TimeUnit.SECONDS)

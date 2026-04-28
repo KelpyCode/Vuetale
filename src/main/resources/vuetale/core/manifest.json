@@ -8,13 +8,13 @@
     "ErrorBoundary",
     "HelloWorld",
     "Test",
-    "core/index",
     "core/TextField",
-    "App.vue?vue&type=script&setup=true&lang",
+    "core/index",
+    "Test.vue?vue&type=script&setup=true&lang",
+    "ErrorBoundary.vue?vue&type=script&setup=true&lang",
     "core/TextField.vue?vue&type=script&setup=true&lang",
     "HelloWorld.vue?vue&type=script&setup=true&lang",
-    "Test.vue?vue&type=script&setup=true&lang",
-    "ErrorBoundary.vue?vue&type=script&setup=true&lang"
+    "App.vue?vue&type=script&setup=true&lang"
   ],
   "pages": [
     "HelpPage",

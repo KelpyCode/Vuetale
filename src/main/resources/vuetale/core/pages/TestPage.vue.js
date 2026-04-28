@@ -1,88 +1,88 @@
-import { defineComponent as A, ref as h, openBlock as _, createElementBlock as v, createVNode as l, unref as t, withCtx as g, createElementVNode as a, toDisplayString as c, createBlock as N, createCommentVNode as k, Fragment as B, renderList as L } from "vue";
+import { defineComponent as B, ref as d, openBlock as m, createElementBlock as h, createVNode as l, unref as t, withCtx as v, createElementVNode as a, toDisplayString as c, createBlock as H, createCommentVNode as L, Fragment as b, renderList as G } from "vue";
 import { Common as u } from "../components/Common.js";
 import { Core as f } from "../components/core/index.js";
 import { useData as i } from "../composables/useData.js";
-const M = { anchor: { Full: 1, Left: 0, Right: 0 } }, b = {
+const U = { anchor: { Full: 1, Left: 0, Right: 0 } }, D = {
   "layout-mode": "Top",
   "flex-weight": 1,
   anchor: { Full: 1 },
   background: { Color: "#444444" }
-}, G = { "layout-mode": "TopScrolling" }, s = /* @__PURE__ */ A({
+}, R = { "layout-mode": "TopScrolling" }, I = /* @__PURE__ */ B({
   __name: "TestPage",
-  setup(T) {
+  setup(S) {
     console.log("WORKS!");
-    const E = i("testFn", () => {
+    const T = i("testFn", () => {
     }), x = i("testFn2", (e, n) => {
     });
-    function V() {
-      console.log("CLICKED ME"), m.value = !m.value, E.value(), console.log("Return of testFn2: ", x.value(123, "hello"));
+    function E() {
+      console.log("CLICKED ME"), s.value = !s.value, T.value(), console.log("Return of testFn2: ", x.value(123, "hello"));
     }
-    const m = h(!1), d = h("nothing yet"), F = i("test"), H = i("test2"), R = i("counter"), o = h([]);
-    function U() {
+    const s = d(!1), p = d("nothing yet"), F = i("test"), _ = i("test2"), V = i("counter"), o = d([]);
+    function y() {
       o.value.push({ name: `Entry ${o.value.length + 1}`, toggle: !1 });
     }
-    function y(e) {
+    function C(e) {
       o.value.splice(e, 1);
     }
-    function C(e) {
+    function A(e) {
       if (e > 0) {
         const n = o.value[e];
         o.value[e] = o.value[e - 1], o.value[e - 1] = n;
       }
     }
-    return (e, n) => (_(), v("Group", M, [
+    return (e, n) => (m(), h("Group", U, [
       l(t(u).Container, {
         anchor: { Height: 800, Width: 600 },
         "close-button": !0
       }, {
-        title: g(() => [
+        title: v(() => [
           l(t(u).Title, {
             class: "",
-            text: m.value ? "Title example" : "Anotherx title"
+            text: s.value ? "Title example" : "Anotherx title"
           }, null, 8, ["text"])
         ]),
-        content: g(() => [
-          a("Group", b, [
+        content: v(() => [
+          a("Group", D, [
             a("Group", null, [
-              a("Label", null, c(d.value) + " | " + c(t(F)) + " " + c(t(H)?.a) + " " + c(t(R)), 1)
+              a("Label", null, c(p.value) + " | " + c(t(F)) + " " + c(t(_)?.a) + " " + c(t(V)), 1)
             ]),
             n[1] || (n[1] = a("TextField", null, null, -1)),
             l(t(u).TextButton, {
               text: "Example test",
-              onActivating: V,
+              onActivating: E,
               anchor: { Height: 20, Top: 80 }
             }),
-            m.value ? (_(), N(t(f).TextField, {
+            s.value ? (m(), H(t(f).TextField, {
               key: 0,
               decoration: { Default: {} },
-              modelValue: d.value,
-              "onUpdate:modelValue": n[0] || (n[0] = (r) => d.value = r),
+              modelValue: p.value,
+              "onUpdate:modelValue": n[0] || (n[0] = (r) => p.value = r),
               anchor: { Height: 120, Top: 10, Width: 200 }
-            }, null, 8, ["modelValue"])) : k("", !0),
-            a("Group", G, [
-              (_(!0), v(B, null, L(o.value, (r, p) => (_(), v("Group", {
-                key: p,
+            }, null, 8, ["modelValue"])) : L("", !0),
+            a("Group", R, [
+              (m(!0), h(b, null, G(o.value, (r, g) => (m(), h("Group", {
+                key: g,
                 anchor: { Height: 200 }
               }, [
                 a("Label", null, c(r.name), 1),
                 l(t(f).TextField, {
                   modelValue: r.name,
-                  "onUpdate:modelValue": (I) => r.name = I
+                  "onUpdate:modelValue": (k) => r.name = k
                 }, null, 8, ["modelValue", "onUpdate:modelValue"]),
                 l(t(u).TextButton, {
                   text: "Remove",
-                  onActivating: () => y(p),
+                  onActivating: () => C(g),
                   anchor: { Height: 20, Top: 5, Left: 100 }
                 }, null, 8, ["onActivating"]),
                 l(t(u).TextButton, {
                   text: "Up",
-                  onActivating: () => C(p),
+                  onActivating: () => A(g),
                   anchor: { Height: 20, Top: 5, Left: 160 }
                 }, null, 8, ["onActivating"])
               ]))), 128)),
               l(t(u).TextButton, {
                 text: "Add Entry",
-                onActivating: U,
+                onActivating: y,
                 anchor: { Height: 20, Top: 10 }
               })
             ])
@@ -93,9 +93,7 @@ const M = { anchor: { Full: 1, Left: 0, Right: 0 } }, b = {
     ]));
   }
 });
-s.__hmrId = "265dd60d";
-typeof __VUE_HMR_RUNTIME__ < "u" && (__VUE_HMR_RUNTIME__.createRecord(s.__hmrId, s) || __VUE_HMR_RUNTIME__.reload(s.__hmrId, s));
 export {
-  s as default
+  I as default
 };
-//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiVGVzdFBhZ2UudnVlLmpzIiwic291cmNlcyI6W10sInNvdXJjZXNDb250ZW50IjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6Ijs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7OzsifQ==
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiVGVzdFBhZ2UudnVlLmpzIiwic291cmNlcyI6W10sInNvdXJjZXNDb250ZW50IjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6Ijs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7In0=
