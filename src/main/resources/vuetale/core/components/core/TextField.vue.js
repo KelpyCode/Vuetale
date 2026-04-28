@@ -1,7 +1,7 @@
-import { defineComponent as c, useAttrs as d, computed as m, ref as y, openBlock as h, createBlock as g, unref as l, mergeProps as v, nextTick as f } from "vue";
+import { defineComponent as d, useAttrs as _, computed as m, ref as h, openBlock as y, createBlock as f, unref as i, mergeProps as v, nextTick as g } from "vue";
 import { Common as x } from "../Common.js";
 import { useForwardedBindings as B } from "../../composables/useForwardedBindings.js";
-const V = /* @__PURE__ */ c({
+const e = /* @__PURE__ */ d({
   inheritAttrs: !1,
   __name: "TextField",
   props: {
@@ -43,32 +43,34 @@ const V = /* @__PURE__ */ c({
     modelValue: {}
   },
   emits: ["update:modelValue"],
-  setup(a, { emit: i }) {
-    const o = a, u = d(), r = i, n = m({
+  setup(n, { emit: u }) {
+    const l = n, r = _(), s = u, a = m({
       get() {
-        return o.modelValue;
+        return l.modelValue;
       },
-      set(e) {
-        r("update:modelValue", e);
+      set(t) {
+        s("update:modelValue", t);
       }
-    }), { forwardedBindings: s } = B(
-      o,
-      u,
+    }), { forwardedBindings: p } = B(
+      l,
+      r,
       { exclude: ["modelValue", "value"] }
-    ), t = y(!1);
-    function p(e) {
-      t.value = !0, n.value = e, f(() => {
-        t.value = !1;
+    ), o = h(!1);
+    function c(t) {
+      o.value = !0, a.value = t, g(() => {
+        o.value = !1;
       });
     }
-    return (e, F) => (h(), g(l(x).TextField, v(l(s), {
-      onValueChanged: p,
-      value: n.value,
-      "vt-skip-update": t.value
+    return (t, T) => (y(), f(i(x).TextField, v(i(p), {
+      onValueChanged: c,
+      value: a.value,
+      "vt-skip-update": o.value
     }), null, 16, ["value", "vt-skip-update"]));
   }
 });
+e.__hmrId = "c161fde0";
+typeof __VUE_HMR_RUNTIME__ < "u" && (__VUE_HMR_RUNTIME__.createRecord(e.__hmrId, e) || __VUE_HMR_RUNTIME__.reload(e.__hmrId, e));
 export {
-  V as default
+  e as default
 };
-//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiVGV4dEZpZWxkLnZ1ZS5qcyIsInNvdXJjZXMiOltdLCJzb3VyY2VzQ29udGVudCI6W10sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiI7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7In0=
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiVGV4dEZpZWxkLnZ1ZS5qcyIsInNvdXJjZXMiOltdLCJzb3VyY2VzQ29udGVudCI6W10sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiI7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7OzsifQ==

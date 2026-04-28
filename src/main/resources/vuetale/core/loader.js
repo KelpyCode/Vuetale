@@ -1,5 +1,5 @@
-import { shallowReactive as f, ref as A } from "vue";
-import { hytaleRenderer as m } from "./renderer.js";
+import { shallowReactive as f, ref as m } from "vue";
+import { hytaleRenderer as A } from "./renderer.js";
 import R from "./components/App.vue.js";
 /* empty css                    */
 import { flushPendingStyles as v, applyStyles as P } from "./styles.js";
@@ -7,13 +7,13 @@ function b(e, t) {
   globalThis[e] = t;
 }
 const p = /* @__PURE__ */ new Map(), s = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Map(), u = /* @__PURE__ */ new Map(), r = /* @__PURE__ */ new Map();
-function h(e, t, n) {
-  let o = r.get(e);
-  o || (o = f({}), r.set(e, o));
-  let c = n;
+function h(e, t, o) {
+  let n = r.get(e);
+  n || (n = f({}), r.set(e, n));
+  let c = o;
   try {
-    if (n && typeof n == "object" && "_vtHostFnId" in n) {
-      const a = n._vtHostFnId;
+    if (o && typeof o == "object" && "_vtHostFnId" in o) {
+      const a = o._vtHostFnId;
       c = function(..._) {
         try {
           return ktBridge.invokeHostCallback(a, ..._);
@@ -25,7 +25,7 @@ function h(e, t, n) {
   } catch (a) {
     console.error("setAppData: failed to convert host callback marker", a);
   }
-  o[t] = c;
+  n[t] = c;
 }
 const g = /* @__PURE__ */ new Map();
 function w(e, t) {
@@ -40,14 +40,14 @@ function U(e) {
 }
 function E(e, t) {
   console.log("Creating user app", e, t ?? "(no component)"), v(), r.has(e) || r.set(e, f({}));
-  const n = A(t);
-  u.set(e, n);
-  const o = m(e).createApp(R);
-  return o.provide("appId", e), o.provide("componentPathRef", n), p.set(e, o), o;
+  const o = m(t);
+  u.set(e, o);
+  const n = A(e).createApp(R);
+  return n.provide("appId", e), n.provide("componentPathRef", o), p.set(e, n), n;
 }
 function M(e, t) {
-  const n = u.get(e);
-  n ? (n.value = t, console.log("navigateTo", e, t)) : console.warn("navigateTo: no app found with id", e);
+  const o = u.get(e);
+  o ? (o.value = t, console.log("navigateTo", e, t)) : console.warn("navigateTo: no app found with id", e);
 }
 function T(e) {
   return p.get(e);
@@ -58,19 +58,19 @@ function y(e) {
 function N(e) {
   return i.get(e);
 }
-function d(e, t) {
-  const n = {
+function C(e, t) {
+  const o = {
     _vtContainerId: e,
     getRoot: () => t.root
   };
-  Object.defineProperty(n, "_vnode", { value: null, writable: !0, enumerable: !1, configurable: !0 }), Object.defineProperty(n, "__vue_app__", { value: null, writable: !0, enumerable: !1, configurable: !0 }), s.set(e, n);
+  Object.defineProperty(o, "_vnode", { value: null, writable: !0, enumerable: !1, configurable: !0 }), Object.defineProperty(o, "__vue_app__", { value: null, writable: !0, enumerable: !1, configurable: !0 }), s.set(e, o);
 }
 b("_vt", {
   applyStyles: P,
   createUserApp: E,
   getUserApp: T,
   getUserAppRef: y,
-  registerUserAppRef: d,
+  registerUserAppRef: C,
   removeUserApp: U,
   navigateTo: M,
   registerComponent: w,
@@ -91,7 +91,7 @@ export {
   y as getUserAppRef,
   M as navigateTo,
   w as registerComponent,
-  d as registerUserAppRef,
+  C as registerUserAppRef,
   U as removeUserApp,
   h as setAppData
 };
