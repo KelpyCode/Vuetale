@@ -382,10 +382,30 @@ class JSEngine : AutoCloseable {
     }
 
     /**
+     * Submit [block] to the V8 thread without blocking the caller.
+     * If the caller is already on the V8 thread, [block] runs immediately.
+     * Use this for cleanup/teardown paths (e.g. [li.kelp.vuetale.app.App.unmount]) that
+     * run on the Hytale world tick thread and cannot afford to block waiting for V8.
+     */
+    fun submitToV8Thread(block: () -> Unit) {
+        if (Thread.currentThread().name == "vuetale-v8") {
+            runCatching { block() }
+        } else {
+            v8Executor.submit { runCatching { block() } }
+        }
+    }
+
+    /**
      * Evaluate a plain (non-module) JavaScript snippet on the V8 thread.
      * Microtasks (Promises, Vue scheduler) are flushed immediately after.
+     * If the caller is already on the V8 thread, runs inline to avoid deadlock.
      */
     fun evalScript(script: String) {
+        if (Thread.currentThread().name == "vuetale-v8") {
+            v8Runtime.getExecutor(script).executeVoid()
+            runCatching { v8Runtime.await(V8AwaitMode.RunNoWait) }
+            return
+        }
         v8Executor.submit {
             v8Runtime.getExecutor(script).executeVoid()
             runCatching { v8Runtime.await(V8AwaitMode.RunNoWait) }

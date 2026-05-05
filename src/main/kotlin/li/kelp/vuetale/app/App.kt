@@ -293,15 +293,23 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
             logger.warning("Tried to unmount but App '${getId()}' is not mounted")
             return
         }
-        getEngine().evalScript("_vt.getUserApp('${getId()}').unmount();")
+        // Mark unmounted immediately so callers on any thread see the correct state.
         isMounted = false
-        eventRegistry.closeAll()
-        // Also unregister any host callbacks tied to this app
-        runCatching {
-            try {
-                JSEngine.instance.bridge.unregisterHostCallbacksForApp(getId())
-            } catch (e: Exception) {
-                logger.fine("Failed to unregister host callbacks for ${getId()} during unmount: ${e.message}")
+        val engine = getEngine()
+        val appId = getId()
+        // Dispatch all V8 cleanup to the V8 thread without blocking the caller.
+        // unmount() is invoked from VuetaleUIPage.onDismiss() on the Hytale world tick
+        // thread.  Blocking that thread waiting for the V8 isolate lock causes a
+        // multi-second timeout that disconnects the player and stalls the server.
+        engine.submitToV8Thread {
+            runCatching { engine.evalScript("_vt.getUserApp('$appId').unmount();") }
+            eventRegistry.closeAll()
+            runCatching {
+                try {
+                    JSEngine.instance.bridge.unregisterHostCallbacksForApp(appId)
+                } catch (e: Exception) {
+                    logger.fine("Failed to unregister host callbacks for $appId during unmount: ${e.message}")
+                }
             }
         }
     }
