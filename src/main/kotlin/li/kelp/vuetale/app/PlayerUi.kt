@@ -81,6 +81,18 @@ class PlayerUi internal constructor(
         val pRef = requirePlayerRef()
         val (ref, store, player) = requirePlayerContext()
         CompletableFuture.runAsync {
+            // If a page is already open, deactivate and evict its app from AppManager
+            // BEFORE constructing the new VuetaleUIPage.  The VuetaleUIPage constructor
+            // reuses any existing App under the same owner+type key; if the old app is
+            // still registered both pages share the same App object, and the delayed
+            // onDismiss of the old page would then remove the *new* app from AppManager.
+            val oldPage = page
+            if (oldPage != null) {
+                oldPage.prepareForDismissal()
+                // Also unmounts the old app (async JS teardown sent to the V8 thread)
+                // and removes it from the registry so the new page gets a fresh App.
+                AppManager.removeApp(oldPage.app.owner, oldPage.app.type)
+            }
             val newPage = VuetaleUIPage(pRef, ownerId, AppType.Page, lifetime, componentPath)
             page = newPage
             player.pageManager.openCustomPage(ref, store, newPage)
