@@ -153,11 +153,11 @@ class PlayerUi internal constructor(
      * @param componentPath  Module path of the Vue component, e.g. `"vt:@core/huds/ActionBar"`.
      */
     fun openHud(componentPath: String): PlayerUi {
-        val (ref, store, player) = requirePlayerContext()
+        val (_, _, player) = requirePlayerContext()
         CompletableFuture.runAsync {
             val newHud = VuetaleUIHud(requirePlayerRef(), ownerId, componentPath)
             hud = newHud
-            player.hudManager.setCustomHud(requirePlayerRef(), newHud)
+            player.hudManager.addCustomHud(requirePlayerRef(), newHud)
         }
         return this
     }
@@ -171,7 +171,7 @@ class PlayerUi internal constructor(
     /** Hide the current HUD, if any. */
     fun closeHud() {
         val h = hud ?: return
-        val (ref, store, player) = requirePlayerContext()
+        val (_, _, player) = requirePlayerContext()
         CompletableFuture.runAsync {
             h.hide()
             player.hudManager.resetHud(requirePlayerRef())

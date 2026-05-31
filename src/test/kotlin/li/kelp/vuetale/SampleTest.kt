@@ -1,5 +1,7 @@
 ﻿package li.kelp.vuetale
 
+import com.caoccao.javet.values.V8Value
+import com.caoccao.javet.values.primitive.V8ValueUndefined
 import li.kelp.vuetale.javascript.JSEngine
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
@@ -20,18 +22,22 @@ class SampleTest {
 
     @Test
     fun loaderCreatesApp() {
-        // Load loader.js from vuetale/core/ — this also loads renderer.js and the App component
-        // The App component's setup() calls console.log("WORKS!") when the app is created.
-        jsEngine.evalModuleResource("loader.js")
+        // loader.js is initialized by JSEngine startup; create app via _vt.
+        jsEngine.runOnV8Thread {
+            jsEngine.loaderCtx.invoke<V8Value>("createUserApp", "test-app").close()
+        }
 
-        // Trigger app creation — this should print "WORKS!" to stdout via console.log
-        jsEngine.createUserApp("test-app")
-
-        // Verify the USER_APPS global map was populated
-        val res = jsEngine.evalScript("typeof USER_APPS !== 'undefined' && USER_APPS.has('test-app')")
-        val exists = res.asBoolean()
+        // Verify getUserApp() returns a real value instead of undefined.
+        val exists = jsEngine.runOnV8Thread {
+            val value = jsEngine.loaderCtx.invoke<V8Value>("getUserApp", "test-app")
+            try {
+                value !is V8ValueUndefined
+            } finally {
+                value.close()
+            }
+        }
         logger.info("USER_APPS has 'test-app': $exists")
 
-        assertTrue(exists, "Expected USER_APPS to contain 'test-app' after createUserApp()")
+        assertTrue(exists, "Expected _vt.getUserApp('test-app') to return a value after createUserApp()")
     }
 }
