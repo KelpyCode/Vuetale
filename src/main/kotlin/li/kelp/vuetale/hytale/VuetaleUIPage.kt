@@ -359,10 +359,31 @@ class VuetaleUIPage(
         sendUpdate()
     }
 
+    // ── Dismissal helpers ──────────────────────────────────────────────────
+
+    /**
+     * Immediately deactivate this page so no further [sendUpdate] calls can be
+     * dispatched while the page is being torn down.
+     *
+     * Must be called **before** any [App.unmount] invocation (e.g. from
+     * [li.kelp.vuetale.app.PlayerUi.closePage]) to close the race window where
+     * Vue's async unmount marks the app dirty, the V8 tick fires [App.onDirty],
+     * and [sendUpdateAsync] calls [sendUpdate] concurrently with Hytale's own
+     * page-teardown logic (which may hold the page lock), causing a thread-
+     * blocking timeout.
+     */
+    internal fun prepareForDismissal() {
+        isActive = false
+        app.onDirty = null
+        app.isDirty = false
+    }
+
     // ── onDismiss ──────────────────────────────────────────────────────────
 
     override fun onDismiss(ref: Ref<EntityStore>, store: Store<EntityStore>) {
         // Prevent any in-flight async sendUpdate from reaching a dismissed page.
+        // prepareForDismissal() may have already done this when closePage() was
+        // called programmatically; calling it again is a safe no-op.
         isActive = false
         // Detach the dirty callback first to avoid any stray update after unmount
         app.onDirty = null

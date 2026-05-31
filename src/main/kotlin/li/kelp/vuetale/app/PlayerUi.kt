@@ -107,8 +107,15 @@ class PlayerUi internal constructor(
      * whatever server-side mechanism you use to navigate the player away from the page.
      */
     fun closePage() {
-        page?.app?.let { app ->
-            if (app.isMounted) app.unmount()
+        val p = page
+        if (p != null) {
+            // Deactivate BEFORE unmounting so that Vue's async teardown (which runs on the
+            // V8 thread and calls markDirty()) cannot trigger onDirty → sendUpdate() while
+            // Hytale is simultaneously dismissing the page.  Without this, the ForkJoin
+            // sendUpdate call races with super.onDismiss() holding the page lock, causing
+            // a thread-blocking timeout.
+            p.prepareForDismissal()
+            if (p.app.isMounted) p.app.unmount()
         }
 
         playerRef?.let { ref ->
