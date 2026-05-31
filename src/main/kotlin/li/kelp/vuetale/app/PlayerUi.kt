@@ -89,9 +89,11 @@ class PlayerUi internal constructor(
             val oldPage = page
             if (oldPage != null) {
                 oldPage.prepareForDismissal()
-                // Also unmounts the old app (async JS teardown sent to the V8 thread)
-                // and removes it from the registry so the new page gets a fresh App.
-                AppManager.removeApp(oldPage.app.owner, oldPage.app.type)
+                // Fully tear down the old app before creating the new one.
+                // This blocks until JS-side USER_APPS/USER_APPS_DATA are cleaned,
+                // preventing overlap when replacing a page quickly.
+                oldPage.app.unmountFullyBlocking()
+                AppManager.removeApp(oldPage.app.owner, oldPage.app.type, unmount = false)
             }
             val newPage = VuetaleUIPage(pRef, ownerId, AppType.Page, lifetime, componentPath)
             page = newPage

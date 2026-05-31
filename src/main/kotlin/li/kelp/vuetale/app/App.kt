@@ -94,7 +94,7 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
         val resolvedPath = componentPath?.removePrefix("vt:")
         if (resolvedPath != null) {
             componentPath = resolvedPath
-            logger.info("Creating app '${getId()}' with component: $resolvedPath")
+            logger.fine("Creating app '${getId()}' with component: $resolvedPath")
             try {
                 getEngine().preloadComponent(resolvedPath)
             } catch (e: Exception) {
@@ -354,7 +354,7 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
             _vt.getUserApp('${getId()}').mount(_vt.getUserAppRef('${getId()}'));
             globalThis.__vt_currentAppId = null;
         """.trimIndent())
-        logger.info("Mounted App '${getId()}'")
+        logger.fine("Mounted App '${getId()}'")
         isMounted = true
     }
 
@@ -402,6 +402,38 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
             } catch (e: Exception) {
                 logger.fine("Failed to unregister host callbacks for ${getId()} during unmount: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Fully tear down this app before replacing it with another page.
+     *
+     * Unlike [unmount], this blocks until `_vt.removeUserApp(id)` has run on the V8 thread,
+     * guaranteeing the old JS app and data maps are gone before a new app is created
+     * under the same owner/type id.
+     */
+    fun unmountFullyBlocking() {
+        val appId = getId()
+        val engine = getEngine()
+
+        if (engine.isAlive) {
+            runCatching {
+                engine.runOnV8Thread {
+                    engine.loaderCtx.invoke<V8Value>("removeUserApp", appId).close()
+                }
+            }.onFailure {
+                logger.warning("Full unmount failed for app '$appId': ${it.message}")
+            }
+        }
+
+        isMounted = false
+        isDirty = false
+        onDirty = null
+        eventRegistry.closeAll()
+        runCatching {
+            JSEngine.instance.bridge.unregisterHostCallbacksForApp(appId)
+        }.onFailure {
+            logger.fine("Failed to unregister host callbacks for $appId during full unmount: ${it.message}")
         }
     }
 

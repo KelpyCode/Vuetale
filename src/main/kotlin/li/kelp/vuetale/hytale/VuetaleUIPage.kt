@@ -205,7 +205,6 @@ class VuetaleUIPage(
      * forever.  Dispatching here keeps the V8 tick non-blocking.
      */
     private fun sendUpdateAsync(cmdBuilder: UICommandBuilder, evtBuilder: UIEventBuilder, lockInterface: Boolean) {
-        logger.info("[VuetaleUIPage] sendUpdateAsync(evtBuilder): called for page ${app.getId()}")
         if (DebugConfig.enabled) logger.info ("[vuetaledebug] Update render:\n${app.root.render(0)}")
 
         CompletableFuture.runAsync {
@@ -214,7 +213,6 @@ class VuetaleUIPage(
     }
 
     private fun sendUpdateAsync(cmdBuilder: UICommandBuilder) {
-        logger.info("[VuetaleUIPage] sendUpdateAsync: called for page ${app.getId()}")
         if (DebugConfig.enabled) logger.info ("[vuetaledebug] Update render:\n${app.root.render(0)}")
 
         CompletableFuture.runAsync {
@@ -322,9 +320,7 @@ class VuetaleUIPage(
         // sent by the client after pressing ESC). Without this guard, runOnV8Thread's
         // Future.get() can throw InterruptedException if the thread is interrupted
         // during page teardown.
-            logger.info("[VuetaleUIPage] handleDataEvent: entry isActive=$isActive, routingKey='${data.routingKey}'")
             if (!isActive) {
-                logger.info("[VuetaleUIPage] handleDataEvent: isActive=false, dropping event for routingKey='${data.routingKey}'")
                 return
             }
 
@@ -335,7 +331,6 @@ class VuetaleUIPage(
         val value = data.value
 
         try {
-                logger.info("[VuetaleUIPage] handleDataEvent: dispatching to V8 thread for routingKey='$routingKey'")
                 JSEngine.instance.runOnV8Thread {
                     // Re-fetch the binding *inside* the V8 task so we always use the live reference.
                     // If a hot-reload fired in the meantime, forceReset() will have cleared the
@@ -345,7 +340,6 @@ class VuetaleUIPage(
                         logger.warning("No binding found for routingKey='$routingKey' (may be stale after hot-reload)")
                         return@runOnV8Thread
                     }
-                    logger.info("[VuetaleUIPage] handleDataEvent: invoking callback for routingKey='$routingKey'")
                     runCatching {
                         liveBinding.callback.callVoid(null, value)
                     }.onFailure {
@@ -367,10 +361,8 @@ class VuetaleUIPage(
         // If dismissal started while the callback was running, skip the ack to avoid
         // racing sendUpdate() against Hytale's page teardown lock path.
         if (!isActive) {
-            logger.info("[VuetaleUIPage] handleDataEvent: isActive=false after callback, skipping sendUpdate ack for routingKey='$routingKey'")
             return
         }
-        logger.info("[VuetaleUIPage] handleDataEvent: calling sendUpdate for routingKey='$routingKey'")
         runCatching { sendUpdate() }
     }
 
@@ -388,7 +380,6 @@ class VuetaleUIPage(
      * blocking timeout.
      */
     internal fun prepareForDismissal() {
-        logger.info("[VuetaleUIPage] prepareForDismissal: called for page ${app.getId()}")
         isActive = false
         app.onDirty = null
         app.isDirty = false
@@ -399,7 +390,6 @@ class VuetaleUIPage(
     // ── onDismiss ──────────────────────────────────────────────────────────
 
     override fun onDismiss(ref: Ref<EntityStore>, store: Store<EntityStore>) {
-        logger.info("[VuetaleUIPage] onDismiss: called for page ${app.getId()}")
         // Prevent any in-flight async sendUpdate from reaching a dismissed page.
         // prepareForDismissal() may have already done this when closePage() was
         // called programmatically; calling it again is a safe no-op.
