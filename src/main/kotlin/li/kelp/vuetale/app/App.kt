@@ -1,4 +1,5 @@
-﻿package li.kelp.vuetale.app
+﻿
+package li.kelp.vuetale.app
 
 import com.caoccao.javet.values.V8Value
 import com.caoccao.javet.values.reference.V8ValueObject
@@ -6,11 +7,19 @@ import li.kelp.vuetale.events.EventRegistry
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.tree.Element
 import li.kelp.vuetale.tree.RootElement
+import java.lang.reflect.Array as JArray
+import java.lang.reflect.Modifier
+import java.util.IdentityHashMap
 import java.util.logging.Logger
 
 data class Dependency(var origin: String, var name: String, var dependents: Int)
 
 class App(val owner: String, val type: AppType, var componentPath: String? = null) {
+
+    companion object {
+        private const val MAX_SETDATA_NORMALIZE_DEPTH = 8
+    }
+
     private val logger: Logger = Logger.getLogger("App $owner-$type")
     private fun getEngine() = JSEngine.instance
 
@@ -163,8 +172,9 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
                                 .close()
                         }
                     } else {
+                        val normalized = normalizeForJs(value)
                         engine.runOnV8Thread {
-                            engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
+                            engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, normalized).close()
                         }
                     }
                 } catch (e: Exception) {
@@ -211,27 +221,24 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
         dataCache[key] = value
         val engine = getEngine()
         if (!engine.isAlive) {
-            // Engine is shutting down; skip sending to V8. Data is still cached and
-            // will be re-pushed when the engine restarts.
             logger.fine("Skipping setData('$key') because JSEngine is not alive")
             return
         }
-        try {
-            // If value looks like a JVM function/functional object, register it and
-            // send a hostFn marker to JS instead of the raw object.
-            if (value != null && isJvmFunction(value)) {
-                val hostId = JSEngine.instance.bridge.registerHostCallback(getId(), value)
-                engine.runOnV8Thread {
+        val normalized = normalizeForJs(value)
+        // Fire-and-forget: setData is often called from latency-sensitive game threads.
+        // Waiting on V8 here causes visible freezes when payloads are large (e.g. non-empty arrays)
+        // or when teardown/render work is in progress.
+        engine.submitToV8Thread {
+            try {
+                if (value != null && isJvmFunction(value)) {
+                    val hostId = JSEngine.instance.bridge.registerHostCallback(getId(), value)
                     engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, mapOf("_vtHostFnId" to hostId)).close()
+                } else {
+                    engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, normalized).close()
                 }
-            } else {
-                engine.runOnV8Thread {
-                    engine.loaderCtx.invoke<V8Value>("setAppData", getId(), key, value).close()
-                }
+            } catch (e: Exception) {
+                logger.warning("setData failed for app '${getId()}' key='$key' (queued to V8): ${e.message}")
             }
-        } catch (e: Exception) {
-            // Swallow exceptions caused by engine shutdown; data remains in cache.
-            logger.warning("setData failed for app '${getId()}' key='$key': ${e.message}")
         }
     }
 
@@ -260,6 +267,78 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
         // crude: check for any 'invoke' method or 'apply' etc.
         if (cls.methods.any { it.name == "invoke" || it.name == "apply" || it.name == "accept" || it.name == "call" }) return true
         return false
+    }
+
+    private fun normalizeForJs(value: Any?): Any? {
+        return normalizeForJsInternal(value, 0, IdentityHashMap())
+    }
+
+    private fun normalizeForJsInternal(value: Any?, depth: Int, seen: IdentityHashMap<Any, Boolean>): Any? {
+        if (value == null) return null
+        if (depth > MAX_SETDATA_NORMALIZE_DEPTH) {
+            return value.toString()
+        }
+        if (isJvmFunction(value)) return value
+
+        return when (value) {
+            is String, is Number, is Boolean -> value
+            is Char -> value.toString()
+            is Enum<*> -> value.name
+            is Map<*, *> -> {
+                val out = LinkedHashMap<String, Any?>()
+                value.forEach { (k, v) ->
+                    out[k?.toString() ?: "null"] = normalizeForJsInternal(v, depth + 1, seen)
+                }
+                out
+            }
+
+            is Iterable<*> -> value.map { normalizeForJsInternal(it, depth + 1, seen) }
+            else -> {
+                val cls = value.javaClass
+                if (cls.isArray) {
+                    val len = JArray.getLength(value)
+                    val out = ArrayList<Any?>(len)
+                    for (i in 0 until len) {
+                        out.add(normalizeForJsInternal(JArray.get(value, i), depth + 1, seen))
+                    }
+                    return out
+                }
+
+                if (isSimpleJdkType(cls)) {
+                    return value.toString()
+                }
+
+                if (seen.put(value, true) != null) {
+                    return null
+                }
+                try {
+                    val out = LinkedHashMap<String, Any?>()
+                    var c: Class<*>? = cls
+                    while (c != null && c != Any::class.java) {
+                        c.declaredFields.forEach { f ->
+                            if (Modifier.isStatic(f.modifiers)) return@forEach
+                            if (f.isSynthetic) return@forEach
+                            if (f.name.startsWith("$")) return@forEach
+                            runCatching {
+                                f.isAccessible = true
+                                out[f.name] = normalizeForJsInternal(f.get(value), depth + 1, seen)
+                            }
+                        }
+                        c = c.superclass
+                    }
+                    out
+                } finally {
+                    seen.remove(value)
+                }
+            }
+        }
+    }
+
+    private fun isSimpleJdkType(cls: Class<*>): Boolean {
+        val name = cls.name
+        return name.startsWith("java.time.") ||
+            name == "java.util.UUID" ||
+            name.startsWith("java.math.")
     }
 
     fun mount() {
