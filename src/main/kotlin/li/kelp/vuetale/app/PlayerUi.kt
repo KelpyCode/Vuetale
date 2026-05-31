@@ -81,6 +81,20 @@ class PlayerUi internal constructor(
         val pRef = requirePlayerRef()
         val (ref, store, player) = requirePlayerContext()
         CompletableFuture.runAsync {
+            // If a page is already open, deactivate and evict its app from AppManager
+            // BEFORE constructing the new VuetaleUIPage.  The VuetaleUIPage constructor
+            // reuses any existing App under the same owner+type key; if the old app is
+            // still registered both pages share the same App object, and the delayed
+            // onDismiss of the old page would then remove the *new* app from AppManager.
+            val oldPage = page
+            if (oldPage != null) {
+                oldPage.prepareForDismissal()
+                // Fully tear down the old app before creating the new one.
+                // This blocks until JS-side USER_APPS/USER_APPS_DATA are cleaned,
+                // preventing overlap when replacing a page quickly.
+                oldPage.app.unmountFullyBlocking()
+                AppManager.removeApp(oldPage.app.owner, oldPage.app.type, unmount = false)
+            }
             val newPage = VuetaleUIPage(pRef, ownerId, AppType.Page, lifetime, componentPath)
             page = newPage
             player.pageManager.openCustomPage(ref, store, newPage)
@@ -107,8 +121,15 @@ class PlayerUi internal constructor(
      * whatever server-side mechanism you use to navigate the player away from the page.
      */
     fun closePage() {
-        page?.app?.let { app ->
-            if (app.isMounted) app.unmount()
+        val p = page
+        if (p != null) {
+            // Deactivate BEFORE unmounting so that Vue's async teardown (which runs on the
+            // V8 thread and calls markDirty()) cannot trigger onDirty → sendUpdate() while
+            // Hytale is simultaneously dismissing the page.  Without this, the ForkJoin
+            // sendUpdate call races with super.onDismiss() holding the page lock, causing
+            // a thread-blocking timeout.
+            p.prepareForDismissal()
+            if (p.app.isMounted) p.app.unmount()
         }
 
         playerRef?.let { ref ->
@@ -134,11 +155,11 @@ class PlayerUi internal constructor(
      * @param componentPath  Module path of the Vue component, e.g. `"vt:@core/huds/ActionBar"`.
      */
     fun openHud(componentPath: String): PlayerUi {
-        val (ref, store, player) = requirePlayerContext()
+        val (_, _, player) = requirePlayerContext()
         CompletableFuture.runAsync {
             val newHud = VuetaleUIHud(requirePlayerRef(), ownerId, componentPath)
             hud = newHud
-            player.hudManager.setCustomHud(requirePlayerRef(), newHud)
+            player.hudManager.addCustomHud(requirePlayerRef(), newHud)
         }
         return this
     }
@@ -152,7 +173,7 @@ class PlayerUi internal constructor(
     /** Hide the current HUD, if any. */
     fun closeHud() {
         val h = hud ?: return
-        val (ref, store, player) = requirePlayerContext()
+        val (_, _, player) = requirePlayerContext()
         CompletableFuture.runAsync {
             h.hide()
             player.hudManager.resetHud(requirePlayerRef())

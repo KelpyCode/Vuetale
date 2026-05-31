@@ -37,7 +37,7 @@ class VuetaleUIHud(
     appOwner: String,
     /** Initial component to render, e.g. `"vt:@core/huds/MyHud"`. */
     componentPath: String? = null,
-) : CustomUIHud(playerRef) {
+) : CustomUIHud(playerRef, appOwner) {
 
     private val logger = Logger.getLogger("VuetaleUIHud[$appOwner]")
 

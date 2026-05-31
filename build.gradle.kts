@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "li.kelp"
-version = "1.0.28"
+version = "1.0.29"
 
 repositories {
     mavenCentral()
@@ -29,6 +29,7 @@ dependencies {
 hytale {
     allowOp.set(true)
     patchline.set("release")
+    version.set("0.5.0")
     includeLocalMods.set(false)
     manifest {
         version.set(project.version.toString())

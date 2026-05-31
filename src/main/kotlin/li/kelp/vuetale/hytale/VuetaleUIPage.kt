@@ -320,7 +320,9 @@ class VuetaleUIPage(
         // sent by the client after pressing ESC). Without this guard, runOnV8Thread's
         // Future.get() can throw InterruptedException if the thread is interrupted
         // during page teardown.
-        if (!isActive) return
+            if (!isActive) {
+                return
+            }
 
         // Capture only plain values here – never capture the V8ValueFunction itself outside
         // the V8 thread, because a concurrent hot-reload may close the old runtime and clear
@@ -329,21 +331,21 @@ class VuetaleUIPage(
         val value = data.value
 
         try {
-            JSEngine.instance.runOnV8Thread {
-                // Re-fetch the binding *inside* the V8 task so we always use the live reference.
-                // If a hot-reload fired in the meantime, forceReset() will have cleared the
-                // registry and this returns null – skipping callVoid before touching the closed runtime.
-                val liveBinding = app.eventRegistry.findByRoutingKey(routingKey)
-                if (liveBinding == null) {
-                    logger.warning("No binding found for routingKey='$routingKey' (may be stale after hot-reload)")
-                    return@runOnV8Thread
+                JSEngine.instance.runOnV8Thread {
+                    // Re-fetch the binding *inside* the V8 task so we always use the live reference.
+                    // If a hot-reload fired in the meantime, forceReset() will have cleared the
+                    // registry and this returns null – skipping callVoid before touching the closed runtime.
+                    val liveBinding = app.eventRegistry.findByRoutingKey(routingKey)
+                    if (liveBinding == null) {
+                        logger.warning("No binding found for routingKey='$routingKey' (may be stale after hot-reload)")
+                        return@runOnV8Thread
+                    }
+                    runCatching {
+                        liveBinding.callback.callVoid(null, value)
+                    }.onFailure {
+                        logger.warning("Error invoking callback for '$routingKey': ${it.message}")
+                    }
                 }
-                runCatching {
-                    liveBinding.callback.callVoid(null, value)
-                }.onFailure {
-                    logger.warning("Error invoking callback for '$routingKey': ${it.message}")
-                }
-            }
         } catch (_: InterruptedException) {
             // The server thread was interrupted (e.g. during world shutdown or page dismissal).
             // Restore the interrupt flag and drop this event silently.
@@ -355,24 +357,54 @@ class VuetaleUIPage(
             return
         }
 
-        // Acknowledge the event so Hytale does not consider the page stale
-        sendUpdate()
+        // Acknowledge the event so Hytale does not consider the page stale.
+        // If dismissal started while the callback was running, skip the ack to avoid
+        // racing sendUpdate() against Hytale's page teardown lock path.
+        if (!isActive) {
+            return
+        }
+        runCatching { sendUpdate() }
+    }
+
+    // ── Dismissal helpers ──────────────────────────────────────────────────
+
+    /**
+     * Immediately deactivate this page so no further [sendUpdate] calls can be
+     * dispatched while the page is being torn down.
+     *
+     * Must be called **before** any [App.unmount] invocation (e.g. from
+     * [li.kelp.vuetale.app.PlayerUi.closePage]) to close the race window where
+     * Vue's async unmount marks the app dirty, the V8 tick fires [App.onDirty],
+     * and [sendUpdateAsync] calls [sendUpdate] concurrently with Hytale's own
+     * page-teardown logic (which may hold the page lock), causing a thread-
+     * blocking timeout.
+     */
+    internal fun prepareForDismissal() {
+        isActive = false
+        app.onDirty = null
+        app.isDirty = false
+        // Keep ESC dismissal lock-safe: cancel app-owned timers without running full Vue unmount.
+        JSEngine.instance.evalScriptAsync("try { _vt.cancelTimersForApp('${app.getId()}'); } catch(e) {}")
     }
 
     // ── onDismiss ──────────────────────────────────────────────────────────
 
     override fun onDismiss(ref: Ref<EntityStore>, store: Store<EntityStore>) {
         // Prevent any in-flight async sendUpdate from reaching a dismissed page.
-        isActive = false
-        // Detach the dirty callback first to avoid any stray update after unmount
-        app.onDirty = null
+        // prepareForDismissal() may have already done this when closePage() was
+        // called programmatically; calling it again is a safe no-op.
+        prepareForDismissal()
 
         // Only remove this specific App instance.  If the user opened the page a
         // second time before dismissing the first, the constructor will have already
         // replaced this app in AppManager with a new one.  Calling removeApp by
         // owner+type would then unmount the *new* app, killing the second session.
         if (AppManager.getApp(app.getId()) === app) {
-            AppManager.removeApp(app.owner, app.type)
+            // During ESC-driven onDismiss, avoid full Vue unmount here because it can
+            // race page-lock teardown in Hytale and freeze. forceReset() performs Kotlin-side
+            // cleanup (event bindings, callbacks, dirty state) without V8 blocking work.
+            app.forceReset()
+            AppManager.removeApp(app.owner, app.type, unmount = false)
         }
 
         super.onDismiss(ref, store)

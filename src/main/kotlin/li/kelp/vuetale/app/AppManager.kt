@@ -39,18 +39,18 @@ object AppManager {
         apps[app.getId()] = app
     }
 
-    fun removeApp(id: String) {
+    fun removeApp(id: String, unmount: Boolean = true) {
         getApp(id)?.let {
-            if (it.isMounted) {
+            if (unmount && it.isMounted) {
                 it.unmount()
             }
         }
         apps.remove(id)
     }
 
-    fun removeApp(owner: String, type: AppType) {
+    fun removeApp(owner: String, type: AppType, unmount: Boolean = true) {
         val id = getAppId(owner, type)
-        removeApp(id)
+        removeApp(id, unmount)
     }
 
     fun removeOwnerApps(owner: String) {
