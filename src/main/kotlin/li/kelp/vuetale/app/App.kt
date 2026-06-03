@@ -5,6 +5,7 @@ import li.kelp.vuetale.events.EventRegistry
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.tree.Element
 import li.kelp.vuetale.tree.RootElement
+import java.util.concurrent.CompletableFuture
 import java.util.logging.Logger
 
 class App(val owner: String, val type: AppType, var componentPath: String? = null) {
@@ -36,6 +37,9 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
     private var needsJsRecreation = false
 
     var root: RootElement = RootElement()
+
+    @Volatile
+    private var destroyInFlight: CompletableFuture<Unit>? = null
 
     /** Holds all live Vue→Hytale event bindings registered for this app's elements. */
     val eventRegistry = EventRegistry(this)
@@ -143,9 +147,8 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
         removedElementSelectors.clear()
         insertedElements.clear()
         dirtyElementIds.clear()
-        // closeAll() wraps each V8 callback.close() in runCatching internally,
-        // so this is safe even when V8 is already torn down.
-        eventRegistry.closeAll()
+        // V8 handles are closed on the V8 thread to avoid blocking callers.
+        eventRegistry.closeAllAsync()
         // Unregister any host callbacks associated with this app to avoid memory leaks
         runCatching {
             try {
@@ -277,6 +280,9 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
                 }
                 result.close()
             }
+            // removeUserApp() clears USER_APPS_REF; recreate the JS container ref
+            // before mount so Vue never receives an undefined mount target.
+            updateReference()
             needsJsRecreation = false
         }
 
@@ -326,8 +332,10 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
         }
 
         isMounted = false
+        onDirty = null
+        isDirty = false
         needsJsRecreation = true  // Vue app can't be remounted; mount() will recreate it
-        eventRegistry.closeAll()
+        eventRegistry.closeAllAsync()
         // Also unregister any host callbacks tied to this app
         runCatching {
             try {
@@ -336,6 +344,67 @@ class App(val owner: String, val type: AppType, var componentPath: String? = nul
                 logger.fine("Failed to unregister host callbacks for ${getId()} during unmount: ${e.message}")
             }
         }
+    }
+
+    /**
+     * Non-blocking destruction path used by page/hud teardown.
+     *
+     * It schedules JS-side unmount + timer cancellation on the V8 thread and immediately
+     * clears Kotlin-owned references so callers never wait on V8 cleanup.
+     */
+    fun destroyAsync(reason: String): CompletableFuture<Unit> {
+        destroyInFlight?.let { existing ->
+            if (!existing.isDone) return existing
+        }
+
+        val appId = getId()
+        val engine = getEngine()
+        val teardownFuture = CompletableFuture<Unit>()
+        destroyInFlight = teardownFuture
+
+        isMounted = false
+        onDirty = null
+        isDirty = false
+        currentOwner = null
+        needsJsRecreation = true
+        hasStructuralChanges = false
+        removedElementSelectors.clear()
+        insertedElements.clear()
+        dirtyElementIds.clear()
+
+        eventRegistry.closeAllAsync()
+
+        runCatching {
+            try {
+                JSEngine.instance.bridge.unregisterHostCallbacksForApp(appId)
+            } catch (e: Exception) {
+                logger.fine("Failed to unregister host callbacks for $appId during destroyAsync: ${e.message}")
+            }
+        }
+
+        if (!engine.isAlive) {
+            logger.fine("Skipping JS destroy for '$appId' because JSEngine is not alive")
+            teardownFuture.complete(Unit)
+            return teardownFuture
+        }
+
+        engine.submitToV8Thread {
+            val script = """
+                try { _vt.cancelTimersForApp('$appId'); } catch (e) {}
+                try { var __a = _vt.getUserApp('$appId'); if (__a) __a.unmount(); } catch (e) {}
+                try { _vt.removeUserApp('$appId'); } catch (e) {}
+            """.trimIndent()
+            runCatching { engine.evalScript(script) }
+                .onSuccess {
+                    teardownFuture.complete(Unit)
+                }
+                .onFailure {
+                    logger.fine("destroyAsync JS teardown failed for '$appId' (reason=$reason): ${it.message}")
+                    teardownFuture.completeExceptionally(it)
+                }
+        }
+
+        return teardownFuture
     }
 
     init {

@@ -3,6 +3,7 @@
 import com.caoccao.javet.values.reference.V8ValueFunction
 import com.hypixel.hytale.protocol.packets.interface_.CustomUIEventBindingType
 import li.kelp.vuetale.app.App
+import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.tree.Element
 
 /**
@@ -85,5 +86,20 @@ class EventRegistry(val app: App) {
         bindings.values.flatMap { it.values }.forEach { runCatching { it.callback.close() } }
         bindings.clear()
         routingIndex.clear()
+    }
+
+    /**
+     * Non-blocking close variant that transfers callback disposal onto the V8 thread.
+     */
+    fun closeAllAsync() {
+        val engine = runCatching { JSEngine.instance }.getOrNull()
+        if (engine == null || !engine.isAlive) {
+            closeAll()
+            return
+        }
+
+        engine.submitToV8Thread {
+            closeAll()
+        }
     }
 }

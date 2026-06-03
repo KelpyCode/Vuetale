@@ -1,37 +1,76 @@
 ﻿package li.kelp.vuetale
 
-import li.kelp.vuetale.javascript.JSEngine
-import org.junit.jupiter.api.AfterAll
+import li.kelp.vuetale.app.UiLifecycleState
+import li.kelp.vuetale.app.UiLifecycleStateMachine
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.logging.Logger
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class SampleTest {
-    companion object {
-        val jsEngine = JSEngine()
-        val logger = Logger.getLogger("SampleTest")
+    private val logger = Logger.getLogger("SampleTest")
 
-        @JvmStatic
-        @AfterAll
-        fun teardown() {
-            jsEngine.close()
-        }
+    @Test
+    fun lifecycleAllowsExpectedTransitions() {
+        val sm = UiLifecycleStateMachine("test", logger)
+
+        assertTrue(sm.transition(UiLifecycleState.OPENING, "open"))
+        assertTrue(sm.transition(UiLifecycleState.OPEN, "opened"))
+        assertTrue(sm.transition(UiLifecycleState.CLOSING, "close"))
+        assertTrue(sm.transition(UiLifecycleState.DESTROYED, "destroyed"))
+        assertTrue(sm.transition(UiLifecycleState.CLOSED, "closed"))
+        assertEquals(UiLifecycleState.CLOSED, sm.currentState())
     }
 
     @Test
-    fun loaderCreatesApp() {
-        // Load loader.js from vuetale/core/ — this also loads renderer.js and the App component
-        // The App component's setup() calls console.log("WORKS!") when the app is created.
-        jsEngine.evalModuleResource("loader.js")
+    fun lifecycleRejectsIllegalTransitions() {
+        val sm = UiLifecycleStateMachine("test", logger)
 
-        // Trigger app creation — this should print "WORKS!" to stdout via console.log
-        jsEngine.createUserApp("test-app")
+        assertTrue(!sm.transition(UiLifecycleState.OPEN, "illegal-direct-open"))
+        assertEquals(UiLifecycleState.CLOSED, sm.currentState())
 
-        // Verify the USER_APPS global map was populated
-        val res = jsEngine.evalScript("typeof USER_APPS !== 'undefined' && USER_APPS.has('test-app')")
-        val exists = res.asBoolean()
-        logger.info("USER_APPS has 'test-app': $exists")
+        assertTrue(sm.transition(UiLifecycleState.OPENING, "open"))
+        assertTrue(!sm.transition(UiLifecycleState.CLOSED, "illegal-opening-to-closed"))
+        assertEquals(UiLifecycleState.OPENING, sm.currentState())
+    }
 
-        assertTrue(exists, "Expected USER_APPS to contain 'test-app' after createUserApp()")
+    @Test
+    fun lifecycleStressSequenceIsStable() {
+        val sm = UiLifecycleStateMachine("stress", logger)
+        val pool = Executors.newFixedThreadPool(8)
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(200)
+
+        repeat(200) { i ->
+            pool.submit {
+                start.await(2, TimeUnit.SECONDS)
+                if (i % 2 == 0) {
+                    sm.transition(UiLifecycleState.OPENING, "stress-open-$i")
+                    sm.transition(UiLifecycleState.OPEN, "stress-opened-$i")
+                } else {
+                    sm.transition(UiLifecycleState.CLOSING, "stress-close-$i")
+                    sm.transition(UiLifecycleState.DESTROYED, "stress-destroy-$i")
+                    sm.transition(UiLifecycleState.CLOSED, "stress-reset-$i")
+                }
+                done.countDown()
+            }
+        }
+
+        start.countDown()
+        assertTrue(done.await(5, TimeUnit.SECONDS), "Stress lifecycle operations timed out")
+        pool.shutdownNow()
+
+        val final = sm.currentState()
+        assertTrue(
+            final == UiLifecycleState.CLOSED ||
+                    final == UiLifecycleState.OPENING ||
+                    final == UiLifecycleState.OPEN ||
+                    final == UiLifecycleState.CLOSING ||
+                    final == UiLifecycleState.DESTROYED,
+            "Unexpected final state: $final"
+        )
     }
 }

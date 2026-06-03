@@ -5,16 +5,17 @@ import com.hypixel.hytale.component.Store
 import com.hypixel.hytale.server.core.entity.entities.Player
 import com.hypixel.hytale.protocol.packets.interface_.CustomPageLifetime
 import com.hypixel.hytale.protocol.packets.interface_.Page
-import com.hypixel.hytale.server.core.entity.entities.player.pages.PageManager
 import com.hypixel.hytale.server.core.universe.PlayerRef
-import com.hypixel.hytale.server.core.universe.Universe
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore
 import li.kelp.vuetale.helpers.toWorld
 import li.kelp.vuetale.hytale.VuetaleUIHud
 import li.kelp.vuetale.hytale.VuetaleUIPage
+import li.kelp.vuetale.javascript.JSEngine
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.logging.Logger
 
 /**
@@ -30,6 +31,45 @@ class PlayerUi internal constructor(
     val ownerId: String = uuid.toString(),
 ) {
     private val logger = Logger.getLogger("PlayerUi[$ownerId]")
+    private val lifecycle = UiLifecycleStateMachine("player=$uuid", logger)
+    private val lifecycleLock = Any()
+
+    private data class PendingPageOpen(
+        val componentPath: String,
+        val lifetime: CustomPageLifetime,
+    )
+
+    private data class PageOpenSnapshot(
+        val ref: Ref<EntityStore>,
+        val store: Store<EntityStore>,
+    )
+
+    @Volatile
+    private var pendingPageOpen: PendingPageOpen? = null
+
+    @Volatile
+    private var closeBarrier: CompletableFuture<Unit>? = null
+
+    private val preOpenRequiredBindings = listOf(
+        "ComponentPath",
+        "PlayerBinding",
+        "PageContextBinding",
+        "StoreBinding",
+        "LifecycleState"
+    )
+
+    private val postInitRequiredBindings = listOf(
+        "JSRuntimeContext",
+        "UIControllerBinding",
+        "MessageBridge",
+        "PageContextBinding"
+    )
+
+    private val optionalBindings = listOf(
+        "VueRoot",
+        "RuntimeBindings",
+        "MessageChannelBinding"
+    )
 
     // Live references to the Hytale UI objects – set by PlayerUiManager helpers.
     internal var pageRef: Ref<EntityStore>? = null
@@ -51,19 +91,24 @@ class PlayerUi internal constructor(
         }
 
     // Buffers for setData/setHudData calls that arrive before the page/hud app is created.
+    private val dataLock = Any()
     private val pendingPageData: MutableMap<String, Any?> = LinkedHashMap()
     private val pendingHudData: MutableMap<String, Any?> = LinkedHashMap()
 
     private fun flushPendingPageData(app: App) {
-        if (pendingPageData.isEmpty()) return
-        pendingPageData.forEach { (k, v) -> app.setData(k, v) }
-        pendingPageData.clear()
+        val pendingEntries = synchronized(dataLock) {
+            if (pendingPageData.isEmpty()) return
+            pendingPageData.entries.map { it.key to it.value }.also { pendingPageData.clear() }
+        }
+        pendingEntries.forEach { (k, v) -> app.setData(k, v) }
     }
 
     private fun flushPendingHudData(app: App) {
-        if (pendingHudData.isEmpty()) return
-        pendingHudData.forEach { (k, v) -> app.setData(k, v) }
-        pendingHudData.clear()
+        val pendingEntries = synchronized(dataLock) {
+            if (pendingHudData.isEmpty()) return
+            pendingHudData.entries.map { it.key to it.value }.also { pendingHudData.clear() }
+        }
+        pendingEntries.forEach { (k, v) -> app.setData(k, v) }
     }
 
     // ── Page API ───────────────────────────────────────────────────────────
@@ -78,18 +123,21 @@ class PlayerUi internal constructor(
         componentPath: String,
         lifetime: CustomPageLifetime = CustomPageLifetime.CanDismiss,
     ): PlayerUi {
-        logger.info("openPage called for $ownerId with component: $componentPath")
-        val pRef = requirePlayerRef()
-        val (ref, store, player) = requirePlayerContext()
-        CompletableFuture.runAsync {
-            try {
-                logger.info("openPage async start for $ownerId")
-                val newPage = VuetaleUIPage(pRef, ownerId, AppType.Page, lifetime, componentPath)
-                page = newPage
-                player.pageManager.openCustomPage(ref, store, newPage)
-                logger.info("openPage async complete for $ownerId")
-            } catch (t: Throwable) {
-                logger.severe("openPage async failed for $ownerId: ${t.javaClass.simpleName}: ${t.message}\n${t.stackTraceToString()}")
+        synchronized(lifecycleLock) {
+            pendingPageOpen = PendingPageOpen(componentPath, lifetime)
+            logUi("Opening UI requested", uiId = pageUiId(), extra = " component=$componentPath")
+
+            when (lifecycle.currentState()) {
+                UiLifecycleState.CLOSED, UiLifecycleState.DESTROYED -> startPendingOpenLocked("open-request")
+                UiLifecycleState.OPEN -> {
+                    if (lifecycle.transition(UiLifecycleState.CLOSING, "switch-open-request")) {
+                        startCloseAsyncLocked(requestPageNone = true, reason = "switch-open-request")
+                    }
+                }
+
+                UiLifecycleState.OPENING, UiLifecycleState.CLOSING -> {
+                    logUi("Open queued while lifecycle busy", uiId = pageUiId())
+                }
             }
         }
         return this
@@ -114,29 +162,54 @@ class PlayerUi internal constructor(
      * whatever server-side mechanism you use to navigate the player away from the page.
      */
     fun closePage() {
-        val appToUnmount = page?.app
-        val pRef = playerRef
-
-        CompletableFuture.runAsync {
-            appToUnmount?.let { app ->
-                if (app.isMounted) {
-                    app.unmount()
+        synchronized(lifecycleLock) {
+            when (lifecycle.currentState()) {
+                UiLifecycleState.CLOSED, UiLifecycleState.DESTROYED -> {
+                    logUi("Close ignored; already closed", uiId = pageUiId())
+                    return
                 }
-            }
 
-            pRef?.let { ref ->
-                ref.worldUuid?.let { worldUuid ->
-                    worldUuid.toWorld()?.execute {
-                        val reference = ref.reference!!
-                        reference.store.getComponent(reference, Player.getComponentType())?.let { player ->
-                            player.pageManager.setPage(reference, reference.store, Page.None)
-                        }
+                UiLifecycleState.CLOSING -> {
+                    logUi("Close ignored; already closing", uiId = pageUiId())
+                    return
+                }
+
+                UiLifecycleState.OPEN, UiLifecycleState.OPENING -> {
+                    if (lifecycle.transition(UiLifecycleState.CLOSING, "explicit-close")) {
+                        startCloseAsyncLocked(requestPageNone = true, reason = "explicit-close")
                     }
                 }
             }
         }
+    }
 
-        page = null
+    internal fun onPageDismissed(dismissedPage: VuetaleUIPage) {
+        synchronized(lifecycleLock) {
+            if (page !== dismissedPage && page != null) {
+                logUi("Ignoring stale dismiss callback", uiId = dismissedPage.app.getId())
+                return
+            }
+
+            if (page === dismissedPage) page = null
+
+            when (lifecycle.currentState()) {
+                UiLifecycleState.OPEN -> {
+                    if (lifecycle.transition(UiLifecycleState.CLOSING, "external-dismiss")) {
+                        startCloseAsyncLocked(requestPageNone = false, reason = "external-dismiss")
+                    }
+                }
+
+                UiLifecycleState.OPENING -> {
+                    if (lifecycle.transition(UiLifecycleState.CLOSING, "external-dismiss-during-open")) {
+                        startCloseAsyncLocked(requestPageNone = false, reason = "external-dismiss-during-open")
+                    }
+                }
+
+                else -> {}
+            }
+
+            logUi("UI dismissed by Hytale", uiId = pageUiId())
+        }
     }
 
     // ── HUD API ────────────────────────────────────────────────────────────
@@ -192,12 +265,14 @@ class PlayerUi internal constructor(
      * @param value Any JSON-serialisable JVM value (String, Number, Boolean, data class, null).
      */
     fun setData(key: String, value: Any?) {
-        val app = page?.app
-        if (app != null) {
-            app.setData(key, value)
-        } else {
-            pendingPageData[key] = value
+        val app = synchronized(dataLock) {
+            val currentApp = page?.app
+            if (currentApp == null) {
+                pendingPageData[key] = value
+            }
+            currentApp
         }
+        app?.setData(key, value)
     }
 
     /**
@@ -205,12 +280,14 @@ class PlayerUi internal constructor(
      * Buffered if the HUD is not yet active.
      */
     fun setHudData(key: String, value: Any?) {
-        val app = hud?.app
-        if (app != null) {
-            app.setData(key, value)
-        } else {
-            pendingHudData[key] = value
+        val app = synchronized(dataLock) {
+            val currentApp = hud?.app
+            if (currentApp == null) {
+                pendingHudData[key] = value
+            }
+            currentApp
         }
+        app?.setData(key, value)
     }
 
     // ── Internal ───────────────────────────────────────────────────────────
@@ -221,12 +298,281 @@ class PlayerUi internal constructor(
     private data class PlayerContext(val ref: Ref<EntityStore>, val store: Store<EntityStore>, val player: Player)
 
     private fun requirePlayerContext(): PlayerContext {
+        val threadName = Thread.currentThread().name
+        if (!threadName.contains("WorldThread")) {
+            error("PlayerUi[$ownerId] requirePlayerContext() must run on WorldThread, actual thread=$threadName")
+        }
         val ref = pageRef ?: error("PlayerUi[$ownerId] has no entity Ref")
         val store = pageStore ?: error("PlayerUi[$ownerId] has no entity Store")
         val player = store.getComponent(ref, Player.getComponentType())
             ?: error("PlayerUi[$ownerId]: Player component not found")
         return PlayerContext(ref, store, player)
     }
+
+    private fun startPendingOpenLocked(reason: String) {
+        if (!isWorldThread()) {
+            dispatchPendingOpenToWorldThread(reason)
+            return
+        }
+
+        closeBarrier?.let { barrier ->
+            if (!barrier.isDone) {
+                logUi("Open deferred until close barrier completes", uiId = pageUiId(), extra = " reason=$reason")
+                return
+            }
+        }
+
+        val request = pendingPageOpen ?: return
+        val state = lifecycle.currentState()
+        if (state != UiLifecycleState.CLOSED && state != UiLifecycleState.DESTROYED) {
+            return
+        }
+
+        // Phase 1 (WorldThread): capture all Hytale thread-affined references before
+        // any async work starts. Never call Store.getComponent() from ForkJoin threads.
+        val snapshot = try {
+            val ctx = requirePlayerContext()
+            PageOpenSnapshot(ctx.ref, ctx.store)
+        } catch (t: Throwable) {
+            logger.severe("[UI] Pre-open world-thread snapshot failed uiId=${pageUiId()} player=$uuid state=${lifecycle.currentState()} thread=${Thread.currentThread().name} ts=${Instant.now()} error=${t.javaClass.simpleName}:${t.message}")
+            return
+        }
+
+        pendingPageOpen = null
+        if (!lifecycle.transition(UiLifecycleState.OPENING, reason)) {
+            pendingPageOpen = request
+            return
+        }
+
+        CompletableFuture.runAsync {
+            val uiId = pageUiId()
+            val preOpenMissing = validatePreOpenBindings(request.componentPath)
+            if (preOpenMissing.isNotEmpty()) {
+                logger.severe(
+                    "[UI] Pre-open validation failed uiId=$uiId player=$uuid state=${lifecycle.currentState()} thread=${Thread.currentThread().name} ts=${Instant.now()} missing=${preOpenMissing.joinToString(",")}" +
+                            " required=${preOpenRequiredBindings.joinToString(",")}" +
+                            " optional=${optionalBindings.joinToString(",")}" +
+                            " component=${request.componentPath}"
+                )
+                synchronized(lifecycleLock) {
+                    lifecycle.transition(UiLifecycleState.CLOSING, "pre-open-validation-failed")
+                    lifecycle.transition(UiLifecycleState.DESTROYED, "pre-open-validation-failed")
+                    lifecycle.transition(UiLifecycleState.CLOSED, "pre-open-validation-failed-reset")
+                    if (pendingPageOpen != null) {
+                        startPendingOpenLocked("retry-after-pre-open-validation-failure")
+                    }
+                }
+                return@runAsync
+            }
+
+            var postInitMissing: List<String> = emptyList()
+            val openResult = runCatching {
+                val pRef = requirePlayerRef()
+
+                val newPage = VuetaleUIPage(pRef, ownerId, AppType.Page, request.lifetime, request.componentPath)
+                page = newPage
+
+                // Phase 3 (WorldThread): attach page using thread-affined Hytale APIs.
+                attachPageOnWorldThread(snapshot, newPage)
+
+                postInitMissing = validatePostInitBindings(newPage, snapshot)
+                if (postInitMissing.isNotEmpty()) {
+                    throw IllegalStateException("Post-init validation failed: ${postInitMissing.joinToString(",")}")
+                }
+
+                logUi("UI Opened", uiId = uiId)
+            }
+
+            synchronized(lifecycleLock) {
+                if (openResult.isSuccess) {
+                    lifecycle.transition(UiLifecycleState.OPEN, "open-complete")
+                } else {
+                    if (postInitMissing.isNotEmpty()) {
+                        logger.severe(
+                            "[UI] Post-init validation failed uiId=$uiId player=$uuid state=${lifecycle.currentState()} thread=${Thread.currentThread().name} ts=${Instant.now()} missing=${postInitMissing.joinToString(",")}" +
+                                    " required=${postInitRequiredBindings.joinToString(",")}" +
+                                    " optional=${optionalBindings.joinToString(",")}" +
+                                    " component=${request.componentPath}"
+                        )
+                    }
+
+                    if (lifecycle.currentState() == UiLifecycleState.OPENING) {
+                        lifecycle.transition(UiLifecycleState.CLOSING, if (postInitMissing.isNotEmpty()) "post-init-validation-failed" else "open-failed")
+                    }
+                    startCloseAsyncLocked(requestPageNone = true, reason = if (postInitMissing.isNotEmpty()) "post-init-validation-failed" else "open-failed")
+                }
+
+                if (pendingPageOpen != null) {
+                    when (lifecycle.currentState()) {
+                        UiLifecycleState.OPEN -> {
+                            if (lifecycle.transition(UiLifecycleState.CLOSING, "queued-switch-after-open")) {
+                                startCloseAsyncLocked(requestPageNone = true, reason = "queued-switch-after-open")
+                            }
+                        }
+
+                        UiLifecycleState.CLOSED, UiLifecycleState.DESTROYED -> startPendingOpenLocked("queued-open")
+                        else -> {}
+                    }
+                }
+            }
+
+            openResult.onFailure { t ->
+                logger.severe("[UI] Open failed player=$uuid uiId=$uiId state=${lifecycle.currentState()} thread=${Thread.currentThread().name} ts=${Instant.now()} error=${t.javaClass.simpleName}:${t.message}\n${t.stackTraceToString()}")
+            }
+        }
+    }
+
+    private fun attachPageOnWorldThread(snapshot: PageOpenSnapshot, pageToOpen: VuetaleUIPage) {
+        synchronized(lifecycleLock) {
+            if (lifecycle.currentState() != UiLifecycleState.OPENING) {
+                error("PlayerUi[$ownerId]: attach aborted because lifecycle state is ${lifecycle.currentState()} (expected OPENING)")
+            }
+        }
+
+        val world = playerRef?.worldUuid?.toWorld()
+            ?: error("PlayerUi[$ownerId]: world is unavailable for page attachment")
+
+        val attachFuture = CompletableFuture<Unit>()
+
+        world.execute {
+            runCatching {
+                synchronized(lifecycleLock) {
+                    if (lifecycle.currentState() != UiLifecycleState.OPENING) {
+                        error("PlayerUi[$ownerId]: attach aborted on WorldThread because lifecycle state is ${lifecycle.currentState()} (expected OPENING)")
+                    }
+                }
+
+                val player = snapshot.store.getComponent(snapshot.ref, Player.getComponentType())
+                    ?: error("PlayerUi[$ownerId]: Player component missing during page attach")
+                player.pageManager.openCustomPage(snapshot.ref, snapshot.store, pageToOpen)
+            }.onSuccess {
+                attachFuture.complete(Unit)
+            }.onFailure {
+                attachFuture.completeExceptionally(it)
+            }
+        }
+
+        // Wait only on the async worker, never on WorldThread.
+        attachFuture.get(5, TimeUnit.SECONDS)
+    }
+
+    private fun startCloseAsyncLocked(requestPageNone: Boolean, reason: String) {
+        val currentPage = page
+        val currentApp = currentPage?.app
+        page = null
+
+        val barrier = closeBarrier?.takeIf { !it.isDone } ?: (currentApp?.destroyAsync(reason)
+            ?: CompletableFuture.completedFuture(Unit)).also { closeBarrier = it }
+
+        logUi("Starting Shutdown", uiId = currentApp?.getId(), extra = " reason=$reason")
+
+        CompletableFuture.runAsync {
+            runCatching {
+                if (requestPageNone) {
+                    requestHytalePageClose()
+                }
+                barrier.get(10, TimeUnit.SECONDS)
+            }.onFailure { t ->
+                logger.severe("[UI] Shutdown failed player=$uuid uiId=${currentApp?.getId()} state=${lifecycle.currentState()} thread=${Thread.currentThread().name} ts=${Instant.now()} error=${t.javaClass.simpleName}:${t.message}\n${t.stackTraceToString()}")
+            }
+
+            synchronized(lifecycleLock) {
+                if (barrier.isCompletedExceptionally) {
+                    // Keep CLOSING state on teardown failure to prevent overlapping reopen.
+                    logUi("Close barrier failed; keeping state in CLOSING", uiId = currentApp?.getId(), extra = " reason=$reason")
+                    return@synchronized
+                }
+
+                closeBarrier = null
+
+                if (lifecycle.currentState() == UiLifecycleState.CLOSING) {
+                    lifecycle.transition(UiLifecycleState.DESTROYED, "close-complete")
+                }
+                if (lifecycle.currentState() == UiLifecycleState.DESTROYED) {
+                    lifecycle.transition(UiLifecycleState.CLOSED, "close-reset")
+                }
+
+                logUi("Shutdown Complete", uiId = currentApp?.getId(), extra = " reason=$reason")
+
+                if (pendingPageOpen != null) {
+                    startPendingOpenLocked("pending-open-after-close")
+                }
+            }
+        }
+    }
+
+    private fun requestHytalePageClose() {
+        val pRef = playerRef ?: return
+        pRef.worldUuid?.toWorld()?.execute {
+            val reference = pRef.reference ?: return@execute
+            reference.store.getComponent(reference, Player.getComponentType())?.let { player ->
+                player.pageManager.setPage(reference, reference.store, Page.None)
+            }
+        }
+    }
+
+    private fun validatePreOpenBindings(componentPath: String): List<String> {
+        val missing = mutableListOf<String>()
+        if (componentPath.isBlank()) missing.add("ComponentPath")
+        if (playerRef == null) missing.add("PlayerBinding")
+        if (pageRef == null) missing.add("PageContextBinding")
+        if (pageStore == null) missing.add("StoreBinding")
+        if (lifecycle.currentState() != UiLifecycleState.OPENING) missing.add("LifecycleState")
+
+        return missing
+    }
+
+    private fun validatePostInitBindings(openedPage: VuetaleUIPage, snapshot: PageOpenSnapshot): List<String> {
+        val missing = mutableListOf<String>()
+
+        val engineAlive = JSEngine.getExistingInstance()?.isAlive == true
+        if (!engineAlive) missing.add("JSRuntimeContext")
+
+        val bridgeReady = runCatching {
+            val engine = JSEngine.getExistingInstance() ?: return@runCatching false
+            if (!engine.isAlive) return@runCatching false
+            engine.bridge
+            true
+        }.getOrDefault(false)
+        if (!bridgeReady) missing.add("MessageBridge")
+
+        if (page !== openedPage || pageRef == null || pageStore == null) {
+            missing.add("PageContextBinding")
+        }
+
+        // UIControllerBinding is verified from the world-thread snapshot acquired
+        // before async execution started.
+        if (pageRef !== snapshot.ref || pageStore !== snapshot.store) {
+            missing.add("UIControllerBinding")
+        }
+
+        return missing
+    }
+
+    private fun logUi(event: String, uiId: String? = null, extra: String = "") {
+        logger.info(
+            "[UI] $event player=$uuid uiId=${uiId ?: "-"} state=${lifecycle.currentState()} thread=${Thread.currentThread().name} ts=${Instant.now()}$extra"
+        )
+    }
+
+    private fun isWorldThread(): Boolean = Thread.currentThread().name.contains("WorldThread")
+
+    private fun dispatchPendingOpenToWorldThread(reason: String) {
+        val world = playerRef?.worldUuid?.toWorld()
+        if (world == null) {
+            logUi("Cannot dispatch pending open to WorldThread (world unavailable)", uiId = pageUiId(), extra = " reason=$reason")
+            return
+        }
+
+        logUi("Dispatching pending open to WorldThread", uiId = pageUiId(), extra = " reason=$reason")
+        world.execute {
+            synchronized(lifecycleLock) {
+                startPendingOpenLocked("world-dispatch:$reason")
+            }
+        }
+    }
+
+    private fun pageUiId(): String = "$ownerId-${AppType.Page}"
 }
 
 /**

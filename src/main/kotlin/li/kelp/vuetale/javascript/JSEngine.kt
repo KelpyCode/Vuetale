@@ -40,11 +40,72 @@ class JSEngine : AutoCloseable {
         @Volatile
         private var _instance: JSEngine? = null
         private val instanceLock = Any()
+        @Volatile
+        private var initializationFailure: Throwable? = null
+        private const val PROP_JAVET_LIB_PATH = "javet.lib.loading.path"
+        private const val PROP_JAVET_OWNER_LOADER = "vuetale.javet.owner.loader"
+
+        private fun loaderTag(): String {
+            val cl = JSEngine::class.java.classLoader
+            return if (cl == null) {
+                "bootstrap"
+            } else {
+                "${cl.javaClass.name}@${Integer.toHexString(System.identityHashCode(cl))}"
+            }
+        }
+
+        private fun configureJavetNativeLoadingPath() {
+            val currentLoaderTag = loaderTag()
+            val existingOwner = System.getProperty(PROP_JAVET_OWNER_LOADER)
+
+            // Keep a dedicated extraction dir per loader so Javet does not attempt to
+            // System.load() the exact same absolute file path from different classloaders.
+            val pid = runCatching { ProcessHandle.current().pid().toString() }.getOrElse { "unknown" }
+            val root = java.io.File(System.getProperty("java.io.tmpdir"), "javet/$pid")
+            val safeLoaderTag = currentLoaderTag.replace(':', '_').replace('/', '_').replace('\\', '_')
+            val loaderDir = java.io.File(root, safeLoaderTag).also { it.mkdirs() }
+
+            System.setProperty(PROP_JAVET_LIB_PATH, loaderDir.absolutePath)
+
+            if (existingOwner == null) {
+                System.setProperty(PROP_JAVET_OWNER_LOADER, currentLoaderTag)
+            } else if (existingOwner != currentLoaderTag) {
+                logger.warning("[JSEngine] Detected Javet access from a different classloader. owner=$existingOwner current=$currentLoaderTag path=${loaderDir.absolutePath}")
+            }
+        }
 
         val instance: JSEngine
-            get() = _instance ?: synchronized(instanceLock) {
-                _instance ?: JSEngine().also { _instance = it }
+            get() {
+                _instance?.let {
+                    logger.info("[JSEngine] Existing runtime reused loader=${loaderTag()} thread=${Thread.currentThread().name}")
+                    return it
+                }
+
+                synchronized(instanceLock) {
+                    _instance?.let {
+                        logger.info("[JSEngine] Existing runtime reused loader=${loaderTag()} thread=${Thread.currentThread().name}")
+                        return it
+                    }
+
+                    initializationFailure?.let { failure ->
+                        throw IllegalStateException("JSEngine initialization previously failed", failure)
+                    }
+
+                    return try {
+                        logger.info("[JSEngine] Runtime initialization started loader=${loaderTag()} thread=${Thread.currentThread().name}")
+                        configureJavetNativeLoadingPath()
+                        JSEngine().also {
+                            _instance = it
+                            logger.info("[JSEngine] Runtime initialization completed loader=${loaderTag()} thread=${Thread.currentThread().name}")
+                        }
+                    } catch (t: Throwable) {
+                        initializationFailure = t
+                        throw t
+                    }
+                }
             }
+
+        fun getExistingInstance(): JSEngine? = _instance
 
         /**
          * Close the current [JSEngine] and create a fresh one.
@@ -53,7 +114,13 @@ class JSEngine : AutoCloseable {
          */
         fun restart(): JSEngine = synchronized(instanceLock) {
             _instance?.close()
-            JSEngine().also { _instance = it }
+            initializationFailure = null
+            logger.info("[JSEngine] Runtime initialization started loader=${loaderTag()} thread=${Thread.currentThread().name}")
+            configureJavetNativeLoadingPath()
+            JSEngine().also {
+                _instance = it
+                logger.info("[JSEngine] Runtime initialization completed loader=${loaderTag()} thread=${Thread.currentThread().name}")
+            }
         }
 
         private val logger: Logger = Logger.getLogger("JSEngine")

@@ -18,7 +18,6 @@ import li.kelp.vuetale.javascript.DebugConfig
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.property.*
 import li.kelp.vuetale.tree.Element
-import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.locks.ReentrantLock
 import java.util.logging.Logger
@@ -61,6 +60,7 @@ class VuetaleUIPage(
 ) : InteractiveCustomUIPage<VuetaleEventData>(playerRef, lifetime, VuetaleEventData.CODEC) {
 
     private val logger = Logger.getLogger("VuetaleUIPage[$appOwner-$appType]")
+    private val playerUuid = playerRef.uuid
 
     /**
      * Set to false in [onDismiss] so any in-flight async sendUpdate dispatched from
@@ -383,12 +383,10 @@ class VuetaleUIPage(
     // ── onDismiss ──────────────────────────────────────────────────────────
 
     internal fun prepareForDismissal() {
-        logger.info("[VuetaleUIPage] prepareForDismissal: called for page ${app.getId()}")
+        logger.info("[UI] Starting Shutdown uiId=${app.getId()} player=$playerUuid thread=${Thread.currentThread().name}")
         isActive = false
         app.onDirty = null
-        //app.isDirty = false
-        // Keep ESC dismissal lock-safe: cancel app-owned timers without running full Vue unmount.
-        //JSEngine.instance.evalScriptAsync("try { _vt.cancelTimersForApp('${app.getId()}'); } catch(e) {}")
+        app.isDirty = false
     }
 
 
@@ -403,18 +401,15 @@ class VuetaleUIPage(
             // onDismiss fires *after* the new page claimed ownership (currentOwner !== this),
             // we must NOT remove/unmount the app – it now belongs to the new page.
             if (app.currentOwner === this) {
-                // Explicitly call closePage on the PlayerUi to ensure cleanup.
-                // This was the missing piece. AppManager.removeApp is not enough.
-                try {
-                    val playerUuid = UUID.fromString(app.owner)
-                    PlayerUiManager.get(playerUuid)?.closePage()
-                } catch (e: IllegalArgumentException) {
-                    // app.owner might not be a UUID, handle gracefully
-                    logger.warning("Could not parse UUID from app owner '${app.owner}' during onDismiss")
-                }
-                app.forceReset()
+                // Never call PlayerUi.closePage() here: this callback is already executing as
+                // part of page dismissal and re-entering pageManager close logic can deadlock.
+                app.destroyAsync("onDismiss")
                 AppManager.removeApp(app.owner, app.type, unmount = false)
             }
+
+            PlayerUiManager.get(playerUuid)?.onPageDismissed(this)
+
+            logger.info("[UI] Shutdown Complete uiId=${app.getId()} player=$playerUuid thread=${Thread.currentThread().name}")
 
             super.onDismiss(ref, store)
         } finally {
