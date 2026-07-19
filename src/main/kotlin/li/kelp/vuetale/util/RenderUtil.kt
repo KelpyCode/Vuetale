@@ -2,7 +2,7 @@
 
 import li.kelp.vuetale.app.App
 import li.kelp.vuetale.tree.Element
-import li.kelp.vuetale.tree.GroupElement
+import li.kelp.vuetale.tree.ElementContainer
 
 object RenderUtil {
     fun indent(depth: Int): String {
@@ -23,7 +23,7 @@ object RenderUtil {
             render += "\n"
         }
 
-        if (element is GroupElement) {
+        if (element is ElementContainer) {
             val childrenRendered = element.children?.mapNotNull { it.render(depth + 1) }
             if (childrenRendered != null) {
                 render += childrenRendered.joinToString("\n")
