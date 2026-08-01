@@ -77,13 +77,13 @@ class JSEngine : AutoCloseable {
         val instance: JSEngine
             get() {
                 _instance?.let {
-                    logger.info("[JSEngine] Existing runtime reused loader=${loaderTag()} thread=${Thread.currentThread().name}")
+                    //logger.info("[JSEngine] Existing runtime reused loader=${loaderTag()} thread=${Thread.currentThread().name}")
                     return it
                 }
 
                 synchronized(instanceLock) {
                     _instance?.let {
-                        logger.info("[JSEngine] Existing runtime reused loader=${loaderTag()} thread=${Thread.currentThread().name}")
+                        //logger.info("[JSEngine] Existing runtime reused loader=${loaderTag()} thread=${Thread.currentThread().name}")
                         return it
                     }
 
