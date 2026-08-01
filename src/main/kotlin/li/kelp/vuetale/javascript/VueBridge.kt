@@ -9,8 +9,11 @@ import com.caoccao.javet.values.reference.V8ValueFunction
 import com.caoccao.javet.values.reference.V8ValueObject
 import li.kelp.vuetale.app.App
 import li.kelp.vuetale.app.AppManager
+import li.kelp.vuetale.app.PlayerUiManager
 import li.kelp.vuetale.events.VueEventMapper
 import li.kelp.vuetale.extension.HandleResult
+import li.kelp.vuetale.helpers.getDeferred
+import li.kelp.vuetale.helpers.toWorld
 import li.kelp.vuetale.property.Property
 import li.kelp.vuetale.property.PropertyBoolean
 import li.kelp.vuetale.property.PropertyNameMap
@@ -27,8 +30,8 @@ import li.kelp.vuetale.util.StringUtil.capitalize
 import li.kelp.vuetale.util.StringUtil.fromKebabCaseToPascalCase
 import li.kelp.vuetale.validator.*
 import java.lang.reflect.InvocationTargetException
-import java.util.logging.Logger
 import java.util.UUID
+import java.util.logging.Logger
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.BiFunction
@@ -74,7 +77,25 @@ class VueBridge(
     fun invokeHostCallback(hostId: String, vararg args: Any?): Any? {
         val cb = hostCallbacks[hostId]
             ?: throw IllegalStateException("Host callback not found: $hostId")
-        return callCallback(cb, args)
+        return try {
+            callCallback(cb, args)
+        } catch (t: Throwable) {
+            if (!shouldRetryOnWorldThread(t)) throw t
+
+            val appId = hostId.substringBefore("-cb-", "")
+            val ownerId = AppManager.getApp(appId)?.owner ?: throw t
+            val ownerUuid = runCatching { UUID.fromString(ownerId) }.getOrNull() ?: throw t
+            val world = PlayerUiManager.get(ownerUuid)?.playerRef?.worldUuid?.toWorld() ?: throw t
+
+            world.getDeferred { callCallback(cb, args) }.get()
+        }
+    }
+
+    private fun shouldRetryOnWorldThread(error: Throwable): Boolean {
+        if (Thread.currentThread().name != "vuetale-v8") return false
+
+        val message = error.message ?: return false
+        return message.contains("Assert not in thread!") && message.contains("WorldThread")
     }
 
     /**

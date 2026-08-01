@@ -4,6 +4,7 @@ import com.hypixel.hytale.component.Ref
 import com.hypixel.hytale.component.Store
 import com.hypixel.hytale.protocol.packets.interface_.CustomPageLifetime
 import com.hypixel.hytale.server.core.entity.entities.player.pages.InteractiveCustomUIPage
+import com.hypixel.hytale.server.core.ui.ItemGridSlot
 import com.hypixel.hytale.server.core.ui.builder.EventData
 import com.hypixel.hytale.server.core.ui.builder.UICommandBuilder
 import com.hypixel.hytale.server.core.ui.builder.UIEventBuilder
@@ -18,6 +19,7 @@ import li.kelp.vuetale.javascript.DebugConfig
 import li.kelp.vuetale.javascript.JSEngine
 import li.kelp.vuetale.property.*
 import li.kelp.vuetale.tree.Element
+import li.kelp.vuetale.tree.ElementContainer
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.locks.ReentrantLock
 import java.util.logging.Logger
@@ -326,6 +328,35 @@ class VuetaleUIPage(
         )
 
         return ret
+    }
+
+    /**
+     * Push native [ItemGridSlot] data into an existing rendered `ItemGrid` by its Vue `id`.
+     *
+     * This bypasses Vue-side `:slots` serialization so callers can create, update, and
+     * refresh grid contents with a single `set("#<id>.Slots", slots)` update.
+     *
+     * @param customId the Vue `id` attribute on the target `ItemGrid`.
+     * @param slots    the native slots to display; an empty array clears the grid.
+     * @return `true` if the live element was found and the update was dispatched.
+     */
+    fun pushItemGridSlots(customId: String, slots: Array<ItemGridSlot>): Boolean {
+        if (!isActive) return false
+
+        val gridId = findRenderedIdByCustomId(app.root, customId) ?: return false
+        val cmdBuilder = UICommandBuilder().set("#$gridId.Slots", slots)
+        sendUpdate(cmdBuilder, false)
+        return true
+    }
+
+    private fun findRenderedIdByCustomId(element: Element, customId: String): String? {
+        if (element.customId == customId) return element.getId()
+        if (element is ElementContainer) {
+            for (child in element.children) {
+                findRenderedIdByCustomId(child, customId)?.let { return it }
+            }
+        }
+        return null
     }
 
     // ── handleDataEvent ────────────────────────────────────────────────────

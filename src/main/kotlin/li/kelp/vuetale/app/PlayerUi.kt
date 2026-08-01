@@ -90,10 +90,14 @@ class PlayerUi internal constructor(
             if (value != null) flushPendingHudData(value.app)
         }
 
+    @Volatile
+    private var desiredHudComponentPath: String? = null
+
     // Buffers for setData/setHudData calls that arrive before the page/hud app is created.
     private val dataLock = Any()
     private val pendingPageData: MutableMap<String, Any?> = LinkedHashMap()
     private val pendingHudData: MutableMap<String, Any?> = LinkedHashMap()
+    private val hudDataCache: MutableMap<String, Any?> = LinkedHashMap()
 
     private fun flushPendingPageData(app: App) {
         val pendingEntries = synchronized(dataLock) {
@@ -124,6 +128,7 @@ class PlayerUi internal constructor(
         lifetime: CustomPageLifetime = CustomPageLifetime.CanDismiss,
     ): PlayerUi {
         synchronized(lifecycleLock) {
+            inferDesiredHudComponentPath("open-page-request")
             pendingPageOpen = PendingPageOpen(componentPath, lifetime)
             logUi("Opening UI requested", uiId = pageUiId(), extra = " component=$componentPath")
 
@@ -220,16 +225,8 @@ class PlayerUi internal constructor(
      * @param componentPath  Module path of the Vue component, e.g. `"vt:@core/huds/ActionBar"`.
      */
     fun openHud(componentPath: String): PlayerUi {
-        val (ref, store, player) = requirePlayerContext()
-        CompletableFuture.runAsync {
-            try {
-                val newHud = VuetaleUIHud(requirePlayerRef(), ownerId, componentPath)
-                hud = newHud
-                player.hudManager.addCustomHud(requirePlayerRef(), newHud)
-            } catch (t: Throwable) {
-                logger.severe("openHud async failed for $ownerId: ${t.javaClass.simpleName}: ${t.message}\n${t.stackTraceToString()}")
-            }
-        }
+        desiredHudComponentPath = componentPath
+        ensureHudVisible("open-hud-request")
         return this
     }
 
@@ -242,16 +239,32 @@ class PlayerUi internal constructor(
     /** Hide the current HUD, if any. */
     fun closeHud() {
         val h = hud ?: return
-        val (ref, store, player) = requirePlayerContext()
-        CompletableFuture.runAsync {
-            try {
-                h.hide()
-                player.hudManager.resetHud(requirePlayerRef())
-            } catch (t: Throwable) {
-                logger.severe("closeHud async failed for $ownerId: ${t.javaClass.simpleName}: ${t.message}\n${t.stackTraceToString()}")
+        desiredHudComponentPath = null
+
+        val pRef = playerRef
+        val world = pRef?.worldUuid?.toWorld()
+        if (pRef != null && world != null) {
+            world.execute {
+                runCatching {
+                    h.hide()
+                    val reference = pRef.reference ?: return@runCatching
+                    reference.store.getComponent(reference, Player.getComponentType())?.let { player ->
+                        player.hudManager.resetHud(pRef)
+                    }
+                }.onFailure { t ->
+                    logger.severe("closeHud async failed for $ownerId: ${t.javaClass.simpleName}: ${t.message}\n${t.stackTraceToString()}")
+                }
             }
+        } else {
+            runCatching { h.hide() }
+                .onFailure { t -> logger.warning("closeHud hide fallback failed for $ownerId: ${t.javaClass.simpleName}: ${t.message}") }
         }
+
         hud = null
+        synchronized(dataLock) {
+            pendingHudData.clear()
+            hudDataCache.clear()
+        }
     }
 
     // ── Data API ───────────────────────────────────────────────────────────
@@ -281,6 +294,10 @@ class PlayerUi internal constructor(
      */
     fun setHudData(key: String, value: Any?) {
         val app = synchronized(dataLock) {
+            hudDataCache[key] = value
+            if (desiredHudComponentPath == null) {
+                inferDesiredHudComponentPath("set-hud-data")
+            }
             val currentApp = hud?.app
             if (currentApp == null) {
                 pendingHudData[key] = value
@@ -386,6 +403,7 @@ class PlayerUi internal constructor(
             synchronized(lifecycleLock) {
                 if (openResult.isSuccess) {
                     lifecycle.transition(UiLifecycleState.OPEN, "open-complete")
+                    ensureHudVisible("page-open-complete")
                 } else {
                     if (postInitMissing.isNotEmpty()) {
                         logger.severe(
@@ -494,6 +512,8 @@ class PlayerUi internal constructor(
 
                 logUi("Shutdown Complete", uiId = currentApp?.getId(), extra = " reason=$reason")
 
+                ensureHudVisible("page-close-complete")
+
                 if (pendingPageOpen != null) {
                     startPendingOpenLocked("pending-open-after-close")
                 }
@@ -571,6 +591,79 @@ class PlayerUi internal constructor(
             }
         }
     }
+
+    private fun ensureHudVisible(reason: String) {
+        val componentPath = inferDesiredHudComponentPath(reason) ?: run {
+            logger.warning("ensureHudVisible skipped for $ownerId: desiredHudComponentPath is null (reason=$reason)")
+            return
+        }
+        val pRef = playerRef ?: run {
+            logger.warning("ensureHudVisible skipped for $ownerId: playerRef is null (reason=$reason)")
+            return
+        }
+        val world = pRef.worldUuid?.toWorld() ?: run {
+            logger.warning("ensureHudVisible skipped for $ownerId: world is unavailable (reason=$reason)")
+            return
+        }
+
+        logUi("Reasserting HUD", uiId = "$ownerId-${AppType.Hud}", extra = " reason=$reason")
+
+        world.execute {
+            runCatching {
+                val reference = pageRef ?: pRef.reference ?: run {
+                    logger.warning("ensureHudVisible world-step skipped for $ownerId: no entity ref available (reason=$reason)")
+                    return@runCatching
+                }
+                val store = pageStore ?: reference.store
+                val player = store.getComponent(reference, Player.getComponentType()) ?: run {
+                    logger.warning("ensureHudVisible world-step skipped for $ownerId: Player component missing (reason=$reason)")
+                    return@runCatching
+                }
+
+                val targetHud = synchronized(dataLock) {
+                    val existingHud = hud
+                    if (existingHud != null) {
+                        if (normalizeComponentPath(componentPath) != existingHud.app.componentPath) {
+                            existingHud.app.navigateTo(componentPath)
+                        }
+                        existingHud
+                    } else {
+                        VuetaleUIHud(pRef, ownerId, componentPath).also { hud = it }
+                    }
+                }
+
+                player.hudManager.addCustomHud(pRef, targetHud)
+                reapplyHudDataCache(targetHud.app)
+                logger.info("HUD reasserted for $ownerId (reason=$reason, component=$componentPath)")
+            }.onFailure { t ->
+                logger.warning("HUD reassert failed for $ownerId (reason=$reason): ${t.javaClass.simpleName}: ${t.message}")
+            }
+        }
+    }
+
+    private fun reapplyHudDataCache(app: App) {
+        val cachedEntries = synchronized(dataLock) {
+            hudDataCache.entries.map { it.key to it.value }
+        }
+        cachedEntries.forEach { (key, value) -> app.setData(key, value) }
+    }
+
+    private fun inferDesiredHudComponentPath(reason: String): String? {
+        desiredHudComponentPath?.let { return it }
+
+        val candidate = synchronized(dataLock) {
+            hud?.app?.componentPath
+        } ?: AppManager.getApp(AppManager.getAppId(ownerId, AppType.Hud))?.componentPath
+
+        if (!candidate.isNullOrBlank()) {
+            desiredHudComponentPath = candidate
+            logger.info("Inferred desired HUD component for $ownerId: $candidate (reason=$reason)")
+        }
+
+        return desiredHudComponentPath
+    }
+
+    private fun normalizeComponentPath(path: String): String = path.removePrefix("vt:")
 
     private fun pageUiId(): String = "$ownerId-${AppType.Page}"
 }

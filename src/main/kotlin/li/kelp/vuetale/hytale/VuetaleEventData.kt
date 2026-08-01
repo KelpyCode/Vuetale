@@ -3,6 +3,7 @@
 import com.hypixel.hytale.codec.KeyedCodec
 import com.hypixel.hytale.codec.builder.BuilderCodec
 import com.hypixel.hytale.codec.codecs.simple.StringCodec
+import com.hypixel.hytale.codec.codecs.simple.IntegerCodec
 
 /**
  * Event payload sent from the Hytale client back to the server when a UI event fires.
@@ -16,13 +17,16 @@ import com.hypixel.hytale.codec.codecs.simple.StringCodec
  *   Vue callback.
  * - [value]      — Current value of the element that fired the event (empty string for
  *   activation events that carry no value).
+ * - [slotIndex]  — Index of the slot that fired the event (if applicable).
  */
 class VuetaleEventData {
     var routingKey: String = ""
     var value: String = ""
+    var slotIndex: Int = -1
 
     companion object {
         private val STRING = StringCodec()
+        private val INT = IntegerCodec()
 
         @JvmField
         val CODEC: BuilderCodec<VuetaleEventData> =
@@ -36,6 +40,11 @@ class VuetaleEventData {
                     KeyedCodec("@Value", STRING),
                     { d, v: String? -> d.value = v ?: "" },
                     { d -> d.value }
+                ).add()
+                .append(
+                    KeyedCodec("SlotIndex", INT),
+                    { d, v: Int? -> if (v != null) { d.slotIndex = v; d.value = v.toString() } },
+                    { d -> d.slotIndex }
                 ).add()
                 .build()
     }

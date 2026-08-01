@@ -49,9 +49,6 @@ class VuetaleUIHud(
         val existingApp = AppManager.getApp(AppManager.getAppId(appOwner, AppType.Hud))
 
         if (existingApp != null) {
-            existingApp.onDirty = null
-            existingApp.isDirty = false
-
             if (componentPath != null && componentPath != existingApp.componentPath) {
                 existingApp.navigateTo(componentPath)
             }
